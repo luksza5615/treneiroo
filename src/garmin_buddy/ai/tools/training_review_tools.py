@@ -46,6 +46,9 @@ class ToolRegistry:
     def available_tools(self) -> list[str]:
         return sorted(self._tools.keys())
 
+    def remaining_budget(self) -> int:
+        return max(self.max_tool_calls - self._tool_calls, 0)
+
     def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         if name not in self._tools:
             raise ToolValidationError(f"Tool '{name}' is not in the allowlist.")

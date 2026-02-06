@@ -64,6 +64,7 @@ def run_training_review(
         )
 
     key_sessions_payload: list[dict[str, Any]] = []
+    evidence_sessions: list[dict[str, Any]] = []
     missing_data: list[str] = []
     if inputs.include_key_sessions:
         key_sessions_result = tool_registry.call_tool(
@@ -80,12 +81,23 @@ def run_training_review(
         else:
             missing_data.append("key_sessions_unavailable")
 
+    evidence_sessions = _maybe_fetch_evidence(
+        llm_client=llm_client,
+        tool_registry=tool_registry,
+        start_date=inputs.start_date,
+        end_date=inputs.end_date,
+        athlete_id=inputs.athlete_id,
+        key_sessions=key_sessions_payload,
+        missing_data=missing_data,
+    )
+
     prompt = _build_prompt(
         start_date=inputs.start_date,
         end_date=inputs.end_date,
         athlete_id=inputs.athlete_id,
         training_summary=summary_result.payload,
         key_sessions=key_sessions_payload,
+        evidence_sessions=evidence_sessions,
         missing_data=missing_data,
     )
 
@@ -138,6 +150,7 @@ def _build_prompt(
     athlete_id: int | None,
     training_summary: dict[str, Any],
     key_sessions: list[dict[str, Any]],
+    evidence_sessions: list[dict[str, Any]],
     missing_data: list[str],
 ) -> str:
     return (
@@ -148,6 +161,7 @@ def _build_prompt(
         f"end_date: {end_date.isoformat()}\n"
         f"training_summary: {json.dumps(training_summary, default=_json_default)}\n"
         f"key_sessions: {json.dumps(key_sessions, default=_json_default)}\n"
+        f"evidence_sessions: {json.dumps(evidence_sessions, default=_json_default)}\n"
         f"missing_data: {json.dumps(missing_data, default=_json_default)}\n"
     )
 
@@ -159,6 +173,88 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"
     )
+
+
+def _maybe_fetch_evidence(
+    *,
+    llm_client: LLMClient,
+    tool_registry: ToolRegistry,
+    start_date: date,
+    end_date: date,
+    athlete_id: int | None,
+    key_sessions: list[dict[str, Any]],
+    missing_data: list[str],
+) -> list[dict[str, Any]]:
+    if not key_sessions:
+        return []
+
+    if tool_registry.remaining_budget() <= 0:
+        missing_data.append("evidence_tool_budget_exhausted")
+        return []
+
+    request_prompt = _build_evidence_request_prompt(
+        start_date=start_date,
+        end_date=end_date,
+        athlete_id=athlete_id,
+        key_sessions=key_sessions,
+    )
+    response = llm_client.generate(request_prompt)
+
+    try:
+        payload = json.loads(response)
+    except json.JSONDecodeError:
+        missing_data.append("evidence_request_invalid_json")
+        return []
+
+    activity_ids = payload.get("activity_ids")
+    if not isinstance(activity_ids, list):
+        missing_data.append("evidence_request_invalid_schema")
+        return []
+
+    requested_ids = _sanitize_activity_ids(activity_ids)
+    if not requested_ids:
+        return []
+
+    max_fetches = min(2, tool_registry.remaining_budget())
+    selected_ids = requested_ids[:max_fetches]
+    evidence_sessions: list[dict[str, Any]] = []
+    for activity_id in selected_ids:
+        result = tool_registry.call_tool("get_activity", {"activity_id": activity_id})
+        if result.ok:
+            evidence_sessions.extend(result.payload)
+        else:
+            missing_data.append("evidence_fetch_failed")
+
+    return evidence_sessions
+
+
+def _build_evidence_request_prompt(
+    *,
+    start_date: date,
+    end_date: date,
+    athlete_id: int | None,
+    key_sessions: list[dict[str, Any]],
+) -> str:
+    return (
+        "Return a JSON object with an activity_ids list (max 2 integers) that need "
+        "extra evidence. Use only activity_ids from key_sessions.\n"
+        f"athlete_id: {athlete_id}\n"
+        f"start_date: {start_date.isoformat()}\n"
+        f"end_date: {end_date.isoformat()}\n"
+        f"key_sessions: {json.dumps(key_sessions, default=_json_default)}\n"
+    )
+
+
+def _sanitize_activity_ids(activity_ids: list[Any]) -> list[int]:
+    cleaned: list[int] = []
+    for value in activity_ids:
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value <= 0:
+            continue
+        cleaned.append(value)
+
+    return cleaned
 
 
 def _json_default(value: object) -> str:

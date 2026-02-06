@@ -57,8 +57,8 @@ def _valid_report_json() -> str:
 
 
 def test_run_training_review_happy_path() -> None:
-    llm = _FakeLLM([_valid_report_json()])
-    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+    llm = _FakeLLM(['{"activity_ids":[123]}', _valid_report_json()])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
@@ -76,8 +76,8 @@ def test_run_training_review_happy_path() -> None:
 
 
 def test_run_training_review_repairs_invalid_json() -> None:
-    llm = _FakeLLM(["{invalid json", _valid_report_json()])
-    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+    llm = _FakeLLM(['{"activity_ids":[123]}', "{invalid json", _valid_report_json()])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
@@ -90,12 +90,12 @@ def test_run_training_review_repairs_invalid_json() -> None:
     )
 
     assert result.parse_ok is True
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
 
 
 def test_run_training_review_returns_fallback_when_repair_fails() -> None:
-    llm = _FakeLLM(["{invalid json", "{still invalid"])
-    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+    llm = _FakeLLM(['{"activity_ids":[123]}', "{invalid json", "{still invalid"])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
