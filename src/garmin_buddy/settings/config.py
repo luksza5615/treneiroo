@@ -19,6 +19,7 @@ class Config:
     garmin_password: str
     db_connection_string: str
     llm_api_key: str
+    feature_training_review: bool
 
     @staticmethod
     def validate_vars(
@@ -53,6 +54,9 @@ class Config:
         garmin_password = os.getenv("GARMIN_PASSWORD")
         db_connection_string = os.getenv("DB_CONNECTION_STRING")
         llm_api_key = os.getenv("LLM_API_KEY")
+        feature_training_review = _parse_bool(
+            os.getenv("FEATURE_TRAINING_REVIEW"), default=False
+        )
 
         Config.validate_vars(
             fit_dir_path=fit_path,
@@ -68,4 +72,18 @@ class Config:
             garmin_password=garmin_password,
             db_connection_string=db_connection_string,
             llm_api_key=llm_api_key,
+            feature_training_review=feature_training_review,
         )
+
+
+def _parse_bool(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+
+    raise ValueError(f"Invalid boolean value: {value}")

@@ -29,6 +29,7 @@ class ToolRegistry:
         default_factory=dict
     )
     _tool_calls: int = 0
+    _call_log: list[dict[str, Any]] = field(default_factory=list)
     _tools: dict[str, Callable[[dict[str, Any]], ToolResult]] = field(
         init=False, default_factory=dict
     )
@@ -49,6 +50,9 @@ class ToolRegistry:
     def remaining_budget(self) -> int:
         return max(self.max_tool_calls - self._tool_calls, 0)
 
+    def get_call_log(self) -> list[dict[str, Any]]:
+        return list(self._call_log)
+
     def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         if name not in self._tools:
             raise ToolValidationError(f"Tool '{name}' is not in the allowlist.")
@@ -57,7 +61,17 @@ class ToolRegistry:
         cache_key = (name, tuple(sorted(validated_args.items())))
 
         if cache_key in self._cache:
-            return self._cache[cache_key]
+            cached_result = self._cache[cache_key]
+            self._call_log.append(
+                {
+                    "name": name,
+                    "args": validated_args,
+                    "ok": cached_result.ok,
+                    "error": cached_result.error,
+                    "cached": True,
+                }
+            )
+            return cached_result
 
         if self._tool_calls >= self.max_tool_calls:
             return ToolResult(
@@ -69,6 +83,15 @@ class ToolRegistry:
 
         self._tool_calls += 1
         result = self._tools[name](validated_args)
+        self._call_log.append(
+            {
+                "name": name,
+                "args": validated_args,
+                "ok": result.ok,
+                "error": result.error,
+                "cached": False,
+            }
+        )
         self._cache[cache_key] = result
         return result
 

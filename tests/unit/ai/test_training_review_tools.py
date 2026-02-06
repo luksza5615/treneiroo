@@ -95,3 +95,20 @@ def test_call_tool_accepts_date_objects() -> None:
     )
 
     assert repo.summary_calls
+
+
+def test_call_tool_logs_cache_hits() -> None:
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+
+    registry.call_tool(
+        "get_training_summary",
+        {"start_date": "2026-01-01", "end_date": "2026-01-07"},
+    )
+    registry.call_tool(
+        "get_training_summary",
+        {"start_date": "2026-01-01", "end_date": "2026-01-07"},
+    )
+
+    log = registry.get_call_log()
+    assert len(log) == 2
+    assert log[1]["cached"] is True

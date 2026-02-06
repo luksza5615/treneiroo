@@ -8,8 +8,9 @@ _LLM_MODEL = "gemini-3-flash-preview"
 
 
 class LLMService:
-    def __init__(self, api_key):
+    def __init__(self, api_key: str, *, model_name: str | None = None) -> None:
         self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name or _LLM_MODEL
 
     def analyze_training_period(
         self,
@@ -26,9 +27,12 @@ class LLMService:
 
         return analysis
 
+    def generate(self, prompt: str) -> str:
+        return self._generate_response(prompt)
+
     def _generate_response(self, prompt: str) -> str:
         response = self.client.models.generate_content(
-            model=_LLM_MODEL,
+            model=self.model_name,
             contents=prompt,
         )
 
