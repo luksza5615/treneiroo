@@ -1,12 +1,20 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 import pandas as pd
 import streamlit as st
 
 from garmin_buddy.ai.llm_analysis_service import LLMService
+from garmin_buddy.ai.logging.run_store import RunStore
+from garmin_buddy.ai.rendering.report_renderer import render_report_md
+from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
+from garmin_buddy.ai.workflows.training_review import (
+    TrainingReviewInputs,
+    run_training_review,
+)
 from garmin_buddy.analysis.analysis_service import AnalysisService
 from garmin_buddy.database.db_connector import Database
 from garmin_buddy.database.db_service import ActivityRepository
@@ -27,6 +35,7 @@ class Services:
     sync: SyncService
     analysis: AnalysisService
     llm: LLMService
+    config: Config
 
 
 # @st.cache_resource(show_spinner=False)
@@ -45,7 +54,7 @@ def init_services() -> Services:
     analysis = AnalysisService(repo)
     llm = LLMService(cfg.llm_api_key)
 
-    return Services(repo=repo, sync=sync, analysis=analysis, llm=llm)
+    return Services(repo=repo, sync=sync, analysis=analysis, llm=llm, config=cfg)
 
 
 # @st.cache_data(ttl=60, show_spinner=False)
@@ -105,7 +114,7 @@ def main():
     col3.metric("Ascent ↗️", f"{metrics.get('ascent_m', 0):,.0f} m")
     col4.metric("Avg HR ❤️", f"{metrics.get('avg_hr', 0):.0f} bpm")
 
-    tabs = st.tabs(["Activities", "Weekly", "AI Analysis"])
+    tabs = st.tabs(["Activities", "Weekly", "AI Analysis", "AI Review"])
 
     with tabs[0]:
         st.subheader("Activities")
@@ -248,3 +257,65 @@ def main():
                         df, metrics, start, end
                     )
                 st.markdown(analysis_text)
+
+    with tabs[3]:
+        st.subheader("AI review")
+        st.caption("Structured training review with evidence and priorities.")
+
+        if services.config.feature_training_review is False:
+            st.info("Enable FEATURE_TRAINING_REVIEW=true to use this feature.")
+        else:
+            include_key_sessions = st.checkbox(
+                "Include key sessions", value=True, help="Fetch top key sessions."
+            )
+            max_tool_calls = st.number_input(
+                "Max tool calls",
+                min_value=1,
+                max_value=5,
+                value=2,
+                step=1,
+            )
+
+            if st.button("🧠 Generate AI review", type="primary"):
+                with st.spinner("Generating training review..."):
+                    tool_registry = ToolRegistry(
+                        services.repo, max_tool_calls=max_tool_calls
+                    )
+                    inputs = TrainingReviewInputs(
+                        start_date=start,
+                        end_date=end,
+                        include_key_sessions=include_key_sessions,
+                        max_tool_calls=max_tool_calls,
+                    )
+                    result = run_training_review(
+                        llm_client=services.llm,
+                        tool_registry=tool_registry,
+                        inputs=inputs,
+                    )
+
+                    markdown = render_report_md(result.report)
+                    st.markdown(markdown)
+
+                    run_store = RunStore(Path("runs"))
+                    artifact = run_store.append_run(
+                        {
+                            "prompt_version": "training_review_v1",
+                            "model": services.llm.model_name,
+                            "temperature": None,
+                            "tool_calls": tool_registry.get_call_log(),
+                            "raw_response": result.raw_response,
+                            "parsed_output": result.report.to_dict(),
+                            "parse_ok": result.parse_ok,
+                            "retry_count": result.retry_count,
+                        }
+                    )
+
+                with st.expander("Show debug"):
+                    st.write(
+                        {
+                            "run_id": artifact.run_id,
+                            "prompt_version": "training_review_v1",
+                            "parse_ok": result.parse_ok,
+                            "retry_count": result.retry_count,
+                        }
+                    )

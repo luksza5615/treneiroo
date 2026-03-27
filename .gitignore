@@ -24,6 +24,7 @@ docs/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+runs/
 
 .cursorignore
 AGENTS.md
