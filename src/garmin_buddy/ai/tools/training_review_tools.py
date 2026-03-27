@@ -194,6 +194,11 @@ def _parse_date_arg(args: dict[str, Any], field_name: str) -> date:
     raise ToolValidationError(f"{field_name} must be a date or ISO string.")
 
 
+# TODO
+def _convert_date_for_json():
+    pass
+
+
 def _parse_optional_int(value: Any) -> int | None:
     if value is None:
         return None

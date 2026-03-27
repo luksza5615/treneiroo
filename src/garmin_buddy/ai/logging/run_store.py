@@ -31,7 +31,7 @@ class RunStore:
 
     def append_run(self, payload: dict[str, Any]) -> RunArtifact:
         run_id = str(uuid4())
-        artifact_payload = _redact_sensitive(payload)
+        artifact_payload = _format_dates(_redact_sensitive(payload))
         artifact_payload["run_id"] = run_id
         artifact_payload["created_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -40,6 +40,22 @@ class RunStore:
             handle.write(json.dumps(artifact_payload) + "\n")
 
         return RunArtifact(run_id=run_id, payload=artifact_payload)
+
+
+def _format_dates(obj: Any) -> Any:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+    if isinstance(obj, dict):
+        return {key: _format_dates(value) for key, value in obj.items()}
+
+    if isinstance(obj, list):
+        return [_format_dates(item) for item in obj]
+
+    if isinstance(obj, tuple):
+        return tuple(_format_dates(item) for item in obj)
+
+    return obj
 
 
 def _redact_sensitive(payload: dict[str, Any]) -> dict[str, Any]:
