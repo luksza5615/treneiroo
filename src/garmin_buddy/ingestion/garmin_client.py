@@ -1,4 +1,6 @@
 import logging
+import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from garminconnect import (
 )
 
 logger = logging.getLogger(__name__)
+_LOGIN_RATE_LIMIT_COOLDOWN = timedelta(hours=12)
 
 
 class GarminClientError(Exception):
@@ -30,38 +33,48 @@ class GarminClient:
         self._client: Garmin | None = None
 
     def login_to_garmin(self) -> None:
+        self._raise_if_login_rate_limited()
+
         client = Garmin(self.email, self.password)
         client.garth.configure(status_forcelist=(408, 500, 502, 503, 504))
 
         try:
             self._login(client)
             self._client = client
+            self._clear_login_rate_limit_marker()
             logger.info("Connected to garmin")
-        except GarminConnectTooManyRequestsError as exc:
-            raise GarminRateLimitError(
-                "Garmin login is temporarily rate-limited. "
-                "The app now reuses cached tokens when available, but Garmin is "
-                "currently rejecting authentication requests. Wait and try again later."
-            ) from exc
-        except (GarminConnectAuthenticationError, GarminConnectConnectionError) as exc:
-            raise GarminClientError(f"Failed to connect to Garmin: {exc}") from exc
-        except Exception:
+        except Exception as exc:
+            if _looks_like_rate_limit(exc):
+                self._mark_login_rate_limited()
+                raise GarminRateLimitError(
+                    "Garmin login is temporarily rate-limited. "
+                    "The app paused new Garmin login attempts for 12 hours to avoid "
+                    "hammering the Garmin SSO endpoint."
+                ) from exc
+            if isinstance(
+                exc,
+                (GarminConnectAuthenticationError, GarminConnectConnectionError),
+            ):
+                raise GarminClientError(f"Failed to connect to Garmin: {exc}") from exc
             logger.exception("Failed to connect.")
             raise
 
     def _login(self, client: Garmin) -> None:
         if self.tokenstore_path is None:
-            client.login()
+            with _suppress_garmin_library_tracebacks():
+                client.login()
             return
 
-        try:
-            client.login(tokenstore=str(self.tokenstore_path))
-        except FileNotFoundError:
+        if self._tokenstore_ready():
+            with _suppress_garmin_library_tracebacks():
+                client.login(tokenstore=str(self.tokenstore_path))
+        else:
             logger.info(
                 "Garmin token cache not found at %s. Falling back to credential login.",
                 self.tokenstore_path,
             )
-            client.login()
+            with _suppress_garmin_library_tracebacks():
+                client.login()
 
         self.tokenstore_path.mkdir(parents=True, exist_ok=True)
         client.garth.dump(str(self.tokenstore_path))
@@ -91,16 +104,19 @@ class GarminClient:
                 )
                 if activities:
                     all_activities.extend(activities)
-            except GarminConnectTooManyRequestsError as exc:
-                raise GarminRateLimitError(
-                    "Garmin rate-limited activity history requests. "
-                    "The sync was stopped before processing partial data."
-                ) from exc
-            except (GarminConnectAuthenticationError, GarminConnectConnectionError) as exc:
-                raise GarminClientError(
-                    f"Failed to fetch Garmin activities for {window_start} - {window_end}: {exc}"
-                ) from exc
-            except Exception:
+            except Exception as exc:
+                if _looks_like_rate_limit(exc):
+                    raise GarminRateLimitError(
+                        "Garmin rate-limited activity history requests. "
+                        "The sync was stopped before processing partial data."
+                    ) from exc
+                if isinstance(
+                    exc,
+                    (GarminConnectAuthenticationError, GarminConnectConnectionError),
+                ):
+                    raise GarminClientError(
+                        f"Failed to fetch Garmin activities for {window_start} - {window_end}: {exc}"
+                    ) from exc
                 logger.exception(
                     "Failed to fetch activities for window %s - %s",
                     window_start,
@@ -128,3 +144,88 @@ class GarminClient:
         garmin_activity_date = garmin_activity_start_time.date()
 
         return garmin_activity_id, garmin_activity_type, garmin_activity_date
+
+    def _tokenstore_ready(self) -> bool:
+        if self.tokenstore_path is None:
+            return False
+
+        oauth1_token = self.tokenstore_path / "oauth1_token.json"
+        oauth2_token = self.tokenstore_path / "oauth2_token.json"
+        return oauth1_token.exists() and oauth2_token.exists()
+
+    def _raise_if_login_rate_limited(self) -> None:
+        marker = self._login_rate_limit_marker_path()
+        if marker is None or not marker.exists():
+            return
+
+        try:
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            blocked_until = datetime.fromisoformat(payload["blocked_until"])
+        except (KeyError, ValueError, OSError, json.JSONDecodeError):
+            logger.warning("Invalid Garmin rate-limit marker at %s. Ignoring it.", marker)
+            return
+
+        now = datetime.now()
+        if blocked_until <= now:
+            self._clear_login_rate_limit_marker()
+            return
+
+        raise GarminRateLimitError(
+            "Garmin login is temporarily rate-limited. "
+            f"New login attempts are paused until {blocked_until.isoformat(timespec='minutes')}."
+        )
+
+    def _mark_login_rate_limited(self) -> None:
+        marker = self._login_rate_limit_marker_path()
+        if marker is None:
+            return
+
+        blocked_until = datetime.now() + _LOGIN_RATE_LIMIT_COOLDOWN
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(
+                json.dumps({"blocked_until": blocked_until.isoformat()}),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist Garmin rate-limit marker at %s.", marker
+            )
+
+    def _clear_login_rate_limit_marker(self) -> None:
+        marker = self._login_rate_limit_marker_path()
+        if marker is None:
+            return
+
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to remove Garmin rate-limit marker at %s.", marker)
+
+    def _login_rate_limit_marker_path(self) -> Path | None:
+        if self.tokenstore_path is None:
+            return None
+        return self.tokenstore_path / "login_rate_limit.json"
+
+
+def _looks_like_rate_limit(exc: Exception) -> bool:
+    if isinstance(exc, GarminConnectTooManyRequestsError):
+        return True
+
+    error_message = str(exc).lower()
+    return "429" in error_message or "too many requests" in error_message
+
+
+@contextmanager
+def _suppress_garmin_library_tracebacks():
+    garminconnect_logger = logging.getLogger("garminconnect")
+    garth_logger = logging.getLogger("garth")
+    previous_garminconnect_level = garminconnect_logger.level
+    previous_garth_level = garth_logger.level
+    garminconnect_logger.setLevel(logging.CRITICAL)
+    garth_logger.setLevel(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        garminconnect_logger.setLevel(previous_garminconnect_level)
+        garth_logger.setLevel(previous_garth_level)

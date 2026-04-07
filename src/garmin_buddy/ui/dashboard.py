@@ -166,7 +166,7 @@ def main():
         default_end = date.today()
         default_start = default_end - timedelta(days=30)
         start, end = st.date_input(
-            label="",
+            label="Activity date range",
             value=(default_start, default_end),
             max_value=default_end,
             label_visibility="collapsed",
