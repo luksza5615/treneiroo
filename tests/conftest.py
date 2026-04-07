@@ -1,7 +1,17 @@
 import datetime as dt
 from pathlib import Path
+import uuid
 
 import pytest
+
+@pytest.fixture
+def tmp_path() -> Path:
+    tmp_root = Path(__file__).resolve().parents[1] / ".tmp-test"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+
+    path = tmp_root / f"pytest-{uuid.uuid4().hex}"
+    path.mkdir()
+    return path
 
 
 @pytest.fixture(scope="session")

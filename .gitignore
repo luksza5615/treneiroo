@@ -22,9 +22,12 @@ docs/
 # docs/definition_of_done.md
 
 *.egg-info/
+.tmp-test/
 .pytest_cache/
 .ruff_cache/
+.uv-cache/
 runs/
+.garmin_session/
 
 .cursorignore
 AGENTS.md

@@ -2,15 +2,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 import pandas as pd
 import streamlit as st
 
 from garmin_buddy.ai.llm_analysis_service import LLMService
+from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
 from garmin_buddy.ai.logging.run_store import RunStore
+from garmin_buddy.ai.rendering.preparation_renderer import render_preparation_md
 from garmin_buddy.ai.rendering.report_renderer import render_report_md
+from garmin_buddy.ai.tools.training_plan_preparation_tools import (
+    PreparationToolRegistry,
+)
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
+from garmin_buddy.ai.workflows.training_plan_preparation import (
+    TrainingPlanPreparationInputs,
+    approve_training_plan_strategy,
+    generate_phase_plan_from_strategy,
+    run_training_plan_preparation,
+)
 from garmin_buddy.ai.workflows.training_review import (
     TrainingReviewInputs,
     run_training_review,
@@ -21,7 +33,21 @@ from garmin_buddy.database.db_service import ActivityRepository
 from garmin_buddy.ingestion.activity_mapper import ActivityMapper
 from garmin_buddy.ingestion.fit_filestore import FitFileStore
 from garmin_buddy.ingestion.fit_parser import FitParser
-from garmin_buddy.ingestion.garmin_client import GarminClient
+from garmin_buddy.ingestion.garmin_client import (
+    GarminClient,
+    GarminClientError,
+    GarminRateLimitError,
+)
+from garmin_buddy.integrations.google_sheets_training_log import (
+    GoogleSheetsSettings,
+    GoogleSheetsTrainingLogClient,
+)
+from garmin_buddy.intake.document_extraction import (
+    build_lab_fingerprint,
+    extract_document_text,
+    summarize_lab_text,
+)
+from garmin_buddy.intake.profile_intake import normalize_runner_profile
 from garmin_buddy.orchestration.sync_service import SyncService
 from garmin_buddy.settings.config import Config, ConfigError
 from garmin_buddy.settings.logging_config import setup_logging
@@ -45,7 +71,11 @@ def init_services() -> Services:
 
     cfg = Config.from_env()
     db = Database.create_db(cfg)
-    garmin = GarminClient(cfg.garmin_email, cfg.garmin_password)
+    garmin = GarminClient(
+        cfg.garmin_email,
+        cfg.garmin_password,
+        tokenstore_path=cfg.fit_dir_path.parent / ".garmin_session",
+    )
     filestore = FitFileStore(cfg)
     parser = FitParser()
     mapper = ActivityMapper()
@@ -64,6 +94,56 @@ def load_activities(repo: ActivityRepository, start: date, end: date) -> pd.Data
         return df
 
     return df.sort_values(by="activity_start_time", ascending=False)
+
+
+def _build_training_log_loader(config: Config):
+    if not (
+        config.google_sheets_spreadsheet_id
+        and config.google_sheets_worksheet_name
+        and config.google_service_account_info
+    ):
+        return None
+
+    client = GoogleSheetsTrainingLogClient(
+        GoogleSheetsSettings(
+            spreadsheet_id=config.google_sheets_spreadsheet_id,
+            worksheet_name=config.google_sheets_worksheet_name,
+            service_account_info=config.google_service_account_info,
+        )
+    )
+
+    def _load(start_date: date, end_date: date) -> list[dict[str, object]]:
+        return client.list_sessions(start_date, end_date)
+
+    return _load
+
+
+def _build_lab_payload(
+    uploaded_files: list[Any],
+    lab_date_text: str,
+) -> dict[str, object]:
+    extracted_texts: list[str] = []
+    source_names: list[str] = []
+    for uploaded_file in uploaded_files:
+        extracted = extract_document_text(uploaded_file.name, uploaded_file.getvalue())
+        if extracted.text:
+            extracted_texts.append(extracted.text)
+            source_names.append(extracted.name)
+
+    combined_text = "\n\n".join(extracted_texts)
+    lab_summary, lab_markers = summarize_lab_text(combined_text)
+    lab_date = lab_date_text.strip() or None
+
+    return {
+        "lab_summary": lab_summary,
+        "lab_markers": lab_markers,
+        "lab_fingerprint": build_lab_fingerprint(
+            lab_text=combined_text,
+            lab_date=lab_date,
+            markers=lab_markers,
+        ),
+        "source_notes": source_names,
+    }
 
 
 # ----------APP---------
@@ -97,11 +177,20 @@ def main():
 
         st.header("🔄 Refresh activities    ")
         if st.button("Refresh", width="stretch"):
-            with st.spinner("Syncing activities..."):
-                sync_start = start
-                services.sync.sync_activities(sync_start)
-            st.cache_data.clear()
-            st.toast("Actitivies refreshed", icon="✅")
+            try:
+                with st.spinner("Syncing activities..."):
+                    sync_start = start
+                    services.sync.sync_activities(sync_start)
+            except GarminRateLimitError as exc:
+                st.error(str(exc))
+                st.info(
+                    "No local data was refreshed. Retry later or reuse the cached Garmin session."
+                )
+            except GarminClientError as exc:
+                st.error(str(exc))
+            else:
+                st.cache_data.clear()
+                st.toast("Actitivies refreshed", icon="✅")
 
     # Load activities (cached)
     df = load_activities(services.repo, start, end)
@@ -114,7 +203,9 @@ def main():
     col3.metric("Ascent ↗️", f"{metrics.get('ascent_m', 0):,.0f} m")
     col4.metric("Avg HR ❤️", f"{metrics.get('avg_hr', 0):.0f} bpm")
 
-    tabs = st.tabs(["Activities", "Weekly", "AI Analysis", "AI Review"])
+    tabs = st.tabs(
+        ["Activities", "Weekly", "AI Analysis", "AI Review", "AI Plan Prep"]
+    )
 
     with tabs[0]:
         st.subheader("Activities")
@@ -319,3 +410,145 @@ def main():
                             "retry_count": result.retry_count,
                         }
                     )
+
+    with tabs[4]:
+        st.subheader("AI plan preparation")
+        st.caption("Build a strategy first, approve it, then generate the first phase.")
+
+        if services.config.feature_training_plan_preparation is False:
+            st.info(
+                "Enable FEATURE_TRAINING_PLAN_PREPARATION=true to use this feature."
+            )
+        else:
+            training_log_loader = _build_training_log_loader(services.config)
+            profile_col_1, profile_col_2 = st.columns(2)
+            athlete_name = profile_col_1.text_input("Athlete name", key="prep_athlete_name")
+            target_event = profile_col_2.text_input("Target event", key="prep_target_event")
+            goal_text = st.text_area(
+                "Goals",
+                key="prep_goals",
+                help="One goal per line.",
+                placeholder="Sub-40 10k\nBuild consistent weekly volume",
+            )
+            availability_text = st.text_area(
+                "Availability",
+                key="prep_availability",
+                help="One availability note per line.",
+                placeholder="Mon easy\nWed workout\nSat long run",
+            )
+            constraints_text = st.text_area(
+                "Constraints",
+                key="prep_constraints",
+                help="One constraint per line.",
+            )
+            preferences_text = st.text_area(
+                "Preferences",
+                key="prep_preferences",
+                help="One preference per line.",
+            )
+            injury_notes_text = st.text_area(
+                "Injury / limitation notes",
+                key="prep_injury_notes",
+                help="One note per line.",
+            )
+            source_notes_text = st.text_area(
+                "Context notes",
+                key="prep_source_notes",
+                help="Extra context lines for the profile artifact.",
+            )
+            lab_date_text = st.text_input(
+                "Lab date (optional, YYYY-MM-DD)",
+                key="prep_lab_date",
+            )
+            uploaded_lab_files = st.file_uploader(
+                "Lab documents",
+                accept_multiple_files=True,
+                key="prep_lab_files",
+            )
+
+            run_store = PreparationRunStore(Path("runs"))
+
+            profile_payload = normalize_runner_profile(
+                {
+                    "athlete_name": athlete_name,
+                    "goals": goal_text,
+                    "target_event": target_event,
+                    "availability": availability_text,
+                    "constraints": constraints_text,
+                    "preferences": preferences_text,
+                    "injury_notes": injury_notes_text,
+                    "source_notes": source_notes_text,
+                }
+            )
+            lab_payload = _build_lab_payload(uploaded_lab_files or [], lab_date_text)
+
+            if training_log_loader is None:
+                st.warning(
+                    "Google Sheets training log is not configured. The workflow will continue with missing-data markers."
+                )
+
+            if st.button("Generate strategy", type="primary", key="prep_generate_strategy"):
+                with st.spinner("Generating macro strategy..."):
+                    tool_registry = PreparationToolRegistry(
+                        repository=services.repo,
+                        max_tool_calls=8,
+                        training_log_loader=training_log_loader,
+                        profile_loader=lambda: profile_payload.to_dict(),
+                        lab_loader=lambda: lab_payload,
+                        previous_artifact_loader=run_store.load_strategy_state,
+                    )
+                    result = run_training_plan_preparation(
+                        llm_client=services.llm,
+                        tool_registry=tool_registry,
+                        run_store=run_store,
+                        inputs=TrainingPlanPreparationInputs(
+                            start_date=start,
+                            end_date=end,
+                        ),
+                    )
+                st.session_state["preparation_strategy_id"] = result.strategy.strategy_id
+                st.markdown(render_preparation_md(result))
+
+            strategy_id = st.session_state.get("preparation_strategy_id")
+            if strategy_id:
+                st.caption(f"Current strategy id: {strategy_id}")
+                approve_col, phase_col = st.columns(2)
+                if approve_col.button("Approve strategy", key="prep_approve_strategy"):
+                    try:
+                        approve_training_plan_strategy(
+                            run_store=run_store, strategy_id=strategy_id
+                        )
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.success("Strategy approved.")
+
+                if phase_col.button("Generate first phase", key="prep_generate_phase"):
+                    try:
+                        with st.spinner("Generating first phase and critique..."):
+                            tool_registry = PreparationToolRegistry(
+                                repository=services.repo,
+                                max_tool_calls=8,
+                                training_log_loader=training_log_loader,
+                                profile_loader=lambda: profile_payload.to_dict(),
+                                lab_loader=lambda: lab_payload,
+                                previous_artifact_loader=run_store.load_strategy_state,
+                            )
+                            result = generate_phase_plan_from_strategy(
+                                llm_client=services.llm,
+                                tool_registry=tool_registry,
+                                run_store=run_store,
+                                inputs=TrainingPlanPreparationInputs(
+                                    start_date=start,
+                                    end_date=end,
+                                ),
+                                strategy_id=strategy_id,
+                            )
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    else:
+                        if result.strategy_stale:
+                            st.error(
+                                "Strategy became stale because upstream inputs changed. Regenerate the strategy first."
+                            )
+                        st.markdown(render_preparation_md(result))

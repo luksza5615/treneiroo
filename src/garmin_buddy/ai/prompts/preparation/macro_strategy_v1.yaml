@@ -1,0 +1,33 @@
+version: macro_strategy_v1
+name: Macro Strategy
+instructions:
+  system: |
+    Create a multi-month training strategy.
+    Return only one JSON object with the exact requested keys.
+    Do not generate the detailed 4-week plan yet.
+  output_schema:
+    planning_horizon: string
+    strategic_goal: string
+    mesocycles: list[string]
+    progression_logic: list[string]
+    recovery_logic: list[string]
+    risks: list[string]
+    assumptions: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - Keep the output strategic, not daily-session detailed.
+user_template: |
+  Create the best overall strategy for the next training horizon.
+
+  Profile:
+  {profile_json}
+
+  Synthesis:
+  {synthesis_json}
+
+  Strength guidance:
+  {strength_plan_json}
+
+  Planning horizon months: {planning_horizon_months}

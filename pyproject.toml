@@ -12,8 +12,10 @@ dependencies = [
     "fitparse>=1.2.0",
     "garminconnect>=0.2.38",
     "google-genai>=1.60.0",
+    "google-api-python-client>=2.169.0",
     "pandas>=2.3.3",
     "pyodbc>=5.3.0",
+    "PyYAML>=6.0.2",
     "sqlalchemy>=2.0.46",
     "streamlit>=1.53.1",
 ]
@@ -30,4 +32,3 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/garmin_buddy"]
-

@@ -1,0 +1,27 @@
+version: critique_v1
+name: Phase Critique
+instructions:
+  system: |
+    Critique the first phase plan against the approved strategy and constraints.
+    Return only one JSON object with the exact requested keys.
+  output_schema:
+    decision: string
+    blocking_issues: list[string]
+    non_blocking_improvements: list[string]
+    required_adjustments: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - decision must be accept or revise.
+user_template: |
+  Critique the detailed first phase.
+
+  Profile:
+  {profile_json}
+
+  Approved strategy:
+  {strategy_json}
+
+  Phase plan:
+  {phase_plan_json}

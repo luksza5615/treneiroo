@@ -1,0 +1,25 @@
+version: strength_recommendation_v1
+name: Strength Recommendation
+instructions:
+  system: |
+    Design accessory strength work that complements the running plan.
+    Return only one JSON object with the exact requested keys.
+  output_schema:
+    objectives: list[string]
+    weekly_frequency: string
+    session_focuses: list[string]
+    integration_notes: list[string]
+    contraindications: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - Keep the plan accessory, not primary endurance programming.
+user_template: |
+  Prepare accessory strength guidance from the following context.
+
+  Profile:
+  {profile_json}
+
+  Synthesis:
+  {synthesis_json}

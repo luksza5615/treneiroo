@@ -27,16 +27,28 @@ class LLMService:
 
         return analysis
 
-    def generate(self, prompt: str) -> str:
-        return self._generate_response(prompt)
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        model: str | None = None,
+    ) -> str:
+        """Keep one provider boundary so new workflows do not fork provider code."""
 
-    def _generate_response(self, prompt: str) -> str:
+        contents = prompt
+        if system_instruction:
+            contents = f"{system_instruction}\n\n{prompt}"
+
+        return self._generate_response(contents, model=model)
+
+    def _generate_response(self, prompt: str, *, model: str | None = None) -> str:
         response = self.client.models.generate_content(
-            model=self.model_name,
+            model=model or self.model_name,
             contents=prompt,
         )
 
-        return response.text
+        return response.text or ""
 
     def _format_activities_for_prompt(self, activities_df: pd.DataFrame) -> str:
         if activities_df.empty:
@@ -46,16 +58,16 @@ class LLMService:
 
         for _, activity in activities_df.iterrows():
             activity_str = f"""
-                Activity on {activity["activity_date"]}:
-                - Sport: {activity["sport"]} ({activity["subsport"]})
-                - Distance: {activity["distance_in_km"]} km
-                - Duration: {activity["elapsed_duration"]}
-                - Pace: {activity["grade_adjusted_avg_pace_min_per_km"]} min/km
-                - Avg Heart Rate: {activity["avg_heart_rate"]} bpm
-                - Calories: {activity["calories_burnt"]}
-                - Elevation: {activity["total_ascent_in_m"]}m
-                - Training Effect: {activity["aerobic_training_effect_0_to_5"]}
-                - Running efficiency Index: {activity["running_efficiency_index"] if pd.notna(activity["running_efficiency_index"]) else "N/A"}
+                Activity on {self._format_value(activity.get("activity_date"))}:
+                - Sport: {self._format_value(activity.get("sport"))} ({self._format_value(activity.get("subsport"))})
+                - Distance: {self._format_value(activity.get("distance_in_km"))} km
+                - Duration: {self._format_value(activity.get("elapsed_duration"))}
+                - Pace: {self._format_value(activity.get("grade_adjusted_avg_pace_min_per_km"))} min/km
+                - Avg Heart Rate: {self._format_value(activity.get("avg_heart_rate"))} bpm
+                - Calories: {self._format_value(activity.get("calories_burnt"))}
+                - Elevation: {self._format_value(activity.get("total_ascent_in_m"))} m
+                - Training Effect: {self._format_value(activity.get("aerobic_training_effect_0_to_5"))}
+                - Running Efficiency Index: {self._format_value(activity.get("running_efficiency_index"))}
                 """
             formatted_activities.append(activity_str)
 
@@ -74,13 +86,13 @@ class LLMService:
         prompt = f"""
             Analyze the following training period and provide comprehensive insights:
 
-            TRAINING SUMMARY for period {start_date.isoformat} - {end_date.isoformat}:
-            - Total Activities: {metrics["activities_count"]}
-            - Total Distance: {metrics["distance_km"]} km
-            - Average Heart Rate: {metrics["avg_hr"]} bpm
-            - Total Calories: {metrics["calories_burnt"]}
-            - Total Elevation Gain: {metrics["ascent_m"]} m
-            - Average Aerobic Training Effect: {metrics["aerobic_training_effect_0_to_5"]}
+            TRAINING SUMMARY for period {start_date.isoformat()} - {end_date.isoformat()}:
+            - Total Activities: {metrics.get("activities_count", "N/A")}
+            - Total Distance: {metrics.get("distance_km", "N/A")} km
+            - Average Heart Rate: {metrics.get("avg_hr", "N/A")} bpm
+            - Total Calories: {metrics.get("calories_burnt", "N/A")}
+            - Total Elevation Gain: {metrics.get("ascent_m", "N/A")} m
+            - Average Aerobic Training Effect: {metrics.get("aerobic_training_effect_0_to_5", "N/A")}
             
             DETAILED ACTIVITIES:
             {activities_data}
@@ -114,3 +126,10 @@ class LLMService:
             Provide specific, actionable insights based on the data above.
             """
         return prompt
+
+    def _format_value(self, value: Any) -> str:
+        if value is None:
+            return "N/A"
+        if isinstance(value, float) and pd.isna(value):
+            return "N/A"
+        return str(value)

@@ -1,0 +1,29 @@
+version: synthesis_v1
+name: Preparation Synthesis
+instructions:
+  system: |
+    Synthesize upstream findings into one planning artifact.
+    Return only one JSON object with the exact requested keys.
+  output_schema:
+    summary: string
+    key_constraints: list[string]
+    key_opportunities: list[string]
+    planning_priorities: list[string]
+    risk_controls: list[string]
+    assumptions: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - Combine only the provided artifacts.
+user_template: |
+  Combine the following artifacts into one planning synthesis.
+
+  Profile:
+  {profile_json}
+
+  Lab analysis:
+  {lab_analysis_json}
+
+  Past phase review:
+  {past_phase_review_json}

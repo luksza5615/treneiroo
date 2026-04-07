@@ -1,0 +1,34 @@
+version: phase_plan_v1
+name: Phase Plan
+instructions:
+  system: |
+    Generate the first detailed training phase from an approved strategy.
+    Return only one JSON object with the exact requested keys.
+  output_schema:
+    phase_length_weeks: integer
+    weekly_goals: list[string]
+    session_plan: list[string]
+    strength_integration: list[string]
+    rationale_links: list[string]
+    risks: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - Keep the plan aligned with the approved strategy.
+user_template: |
+  Generate the first detailed phase.
+
+  Approved strategy:
+  {strategy_json}
+
+  Synthesis:
+  {synthesis_json}
+
+  Strength guidance:
+  {strength_plan_json}
+
+  Phase length weeks: {first_phase_weeks}
+
+  Revision adjustments:
+  {revision_adjustments_json}

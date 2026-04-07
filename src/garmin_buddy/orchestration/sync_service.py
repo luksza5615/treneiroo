@@ -8,7 +8,7 @@ from garmin_buddy.settings.config import Config
 from garmin_buddy.database.db_connector import Database
 from garmin_buddy.ingestion.fit_filestore import FitFileStore
 from garmin_buddy.ingestion.fit_parser import FitParser
-from garmin_buddy.ingestion.garmin_client import GarminClient
+from garmin_buddy.ingestion.garmin_client import GarminClient, GarminClientError
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class SyncService:
 
         for garmin_activity in garmin_activities:
             logging.debug("Test %s", garmin_activity)
+            fit_filename = "<unknown>"
             try:
                 garmin_activity_id, garmin_activity_type, garmin_activity_date = (
                     self.garmin_client.get_activity_signature(garmin_activity)
@@ -79,6 +80,8 @@ class SyncService:
                 self._parse_and_persist(fit_filepath, garmin_activity_id)
                 db_ids_set.add(garmin_activity_id)
                 persisted_activities.append(fit_filepath)
+            except GarminClientError:
+                raise
             except Exception:
                 logger.exception("Failed processing activity: %s", fit_filename)
 

@@ -19,7 +19,11 @@ class Config:
     garmin_password: str
     db_connection_string: str
     llm_api_key: str
-    feature_training_review: bool
+    feature_training_review: bool = False
+    feature_training_plan_preparation: bool = False
+    google_sheets_spreadsheet_id: str | None = None
+    google_sheets_worksheet_name: str | None = None
+    google_service_account_info: str | None = None
 
     @staticmethod
     def validate_vars(
@@ -57,6 +61,9 @@ class Config:
         feature_training_review = _parse_bool(
             os.getenv("FEATURE_TRAINING_REVIEW"), default=False
         )
+        feature_training_plan_preparation = _parse_bool(
+            os.getenv("FEATURE_TRAINING_PLAN_PREPARATION"), default=False
+        )
 
         Config.validate_vars(
             fit_dir_path=fit_path,
@@ -73,6 +80,10 @@ class Config:
             db_connection_string=db_connection_string,
             llm_api_key=llm_api_key,
             feature_training_review=feature_training_review,
+            feature_training_plan_preparation=feature_training_plan_preparation,
+            google_sheets_spreadsheet_id=os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID"),
+            google_sheets_worksheet_name=os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME"),
+            google_service_account_info=os.getenv("GOOGLE_SERVICE_ACCOUNT_INFO"),
         )
 
 

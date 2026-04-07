@@ -1,0 +1,32 @@
+version: past_phase_review_v1
+name: Past Phase Review
+instructions:
+  system: |
+    You review the past training phase using planned and executed data.
+    Return only one JSON object with the exact requested keys.
+    Do not invent adherence facts or session details.
+  output_schema:
+    summary: string
+    adherence_summary: string
+    positive_patterns: list[string]
+    execution_issues: list[string]
+    risk_flags: list[string]
+    missing_data: list[string]
+    confidence: float
+  guardrails:
+    - Return valid JSON only.
+    - Keep findings grounded in planned and executed data.
+user_template: |
+  Review the past training phase.
+
+  Planned training summary:
+  {planned_training_summary_json}
+
+  Executed training summary:
+  {executed_training_summary_json}
+
+  Planned vs executed comparison:
+  {comparison_json}
+
+  Key executed sessions:
+  {executed_key_sessions_json}

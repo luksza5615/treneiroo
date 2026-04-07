@@ -166,6 +166,100 @@ class ActivityRepository:
 
         return activity_df
 
+    def list_executed_sessions(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        athlete_id: int | None = None,
+    ) -> pd.DataFrame:
+        """Keep execution access explicit so planning workflows reuse one query surface."""
+
+        if athlete_id is not None:
+            logger.info(
+                "Athlete id filtering not supported; ignoring athlete_id=%s",
+                athlete_id,
+            )
+
+        return self.get_activities(start_date, end_date)
+
+    def get_execution_summary(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        athlete_id: int | None = None,
+    ) -> dict[str, float | int | None]:
+        executed_df = self.list_executed_sessions(
+            start_date, end_date, athlete_id=athlete_id
+        )
+        if executed_df.empty:
+            return {
+                "executed_sessions": 0,
+                "distance_km": 0.0,
+                "avg_hr": None,
+                "ascent_m": 0.0,
+                "avg_aerobic_te": None,
+                "avg_anaerobic_te": None,
+                "hard_sessions": 0,
+            }
+
+        hard_session_mask = (
+            executed_df["aerobic_training_effect_0_to_5"].fillna(0)
+            + executed_df["anaerobic_training_effect_0_to_5"].fillna(0)
+        ) >= 5.5
+
+        return {
+            "executed_sessions": int(len(executed_df)),
+            "distance_km": float(executed_df["distance_in_km"].fillna(0).sum()),
+            "avg_hr": _series_optional_float(executed_df["avg_heart_rate"].mean()),
+            "ascent_m": float(executed_df["total_ascent_in_m"].fillna(0).sum()),
+            "avg_aerobic_te": _series_optional_float(
+                executed_df["aerobic_training_effect_0_to_5"].mean()
+            ),
+            "avg_anaerobic_te": _series_optional_float(
+                executed_df["anaerobic_training_effect_0_to_5"].mean()
+            ),
+            "hard_sessions": int(hard_session_mask.sum()),
+        }
+
+    def compare_planned_vs_executed(
+        self,
+        planned_sessions: list[dict[str, object]],
+        start_date: date,
+        end_date: date,
+        *,
+        athlete_id: int | None = None,
+    ) -> dict[str, object]:
+        """Centralize adherence math so every agent sees the same facts."""
+
+        executed_df = self.list_executed_sessions(
+            start_date, end_date, athlete_id=athlete_id
+        )
+        planned_dates = {
+            str(session.get("date"))
+            for session in planned_sessions
+            if session.get("date") is not None
+        }
+        executed_dates = {
+            value.date().isoformat()
+            if hasattr(value, "date")
+            else str(value)
+            for value in executed_df["activity_date"].dropna().tolist()
+        }
+        matched_dates = planned_dates & executed_dates
+        planned_count = len(planned_sessions)
+        adherence_rate = (len(matched_dates) / planned_count) if planned_count else None
+
+        return {
+            "planned_sessions": planned_count,
+            "executed_sessions": int(len(executed_df)),
+            "matched_days": len(matched_dates),
+            "adherence_rate": adherence_rate,
+            "missing_session_dates": sorted(planned_dates - executed_dates),
+            "extra_execution_dates": sorted(executed_dates - planned_dates),
+        }
+
     def persist_activity(self, activity):
         if self._check_if_activity_exists_in_db(activity.activity_id) is False:
             try:
@@ -226,4 +320,10 @@ def _to_optional_float(value: object) -> float | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
 
+    return float(value)
+
+
+def _series_optional_float(value: object) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
     return float(value)
