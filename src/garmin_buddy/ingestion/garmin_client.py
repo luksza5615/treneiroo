@@ -1,5 +1,4 @@
 import logging
-import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,7 +11,6 @@ from garminconnect import (
 )
 
 logger = logging.getLogger(__name__)
-_LOGIN_RATE_LIMIT_COOLDOWN = timedelta(hours=12)
 
 
 class GarminClientError(Exception):
@@ -33,23 +31,19 @@ class GarminClient:
         self._client: Garmin | None = None
 
     def login_to_garmin(self) -> None:
-        self._raise_if_login_rate_limited()
-
         client = Garmin(self.email, self.password)
         client.garth.configure(status_forcelist=(408, 500, 502, 503, 504))
 
         try:
             self._login(client)
             self._client = client
-            self._clear_login_rate_limit_marker()
             logger.info("Connected to garmin")
         except Exception as exc:
             if _looks_like_rate_limit(exc):
-                self._mark_login_rate_limited()
                 raise GarminRateLimitError(
                     "Garmin login is temporarily rate-limited. "
-                    "The app paused new Garmin login attempts for 12 hours to avoid "
-                    "hammering the Garmin SSO endpoint."
+                    "No cached Garmin session is available yet, so the app cannot "
+                    "refresh activities until Garmin clears the block."
                 ) from exc
             if isinstance(
                 exc,
@@ -153,60 +147,6 @@ class GarminClient:
         oauth2_token = self.tokenstore_path / "oauth2_token.json"
         return oauth1_token.exists() and oauth2_token.exists()
 
-    def _raise_if_login_rate_limited(self) -> None:
-        marker = self._login_rate_limit_marker_path()
-        if marker is None or not marker.exists():
-            return
-
-        try:
-            payload = json.loads(marker.read_text(encoding="utf-8"))
-            blocked_until = datetime.fromisoformat(payload["blocked_until"])
-        except (KeyError, ValueError, OSError, json.JSONDecodeError):
-            logger.warning("Invalid Garmin rate-limit marker at %s. Ignoring it.", marker)
-            return
-
-        now = datetime.now()
-        if blocked_until <= now:
-            self._clear_login_rate_limit_marker()
-            return
-
-        raise GarminRateLimitError(
-            "Garmin login is temporarily rate-limited. "
-            f"New login attempts are paused until {blocked_until.isoformat(timespec='minutes')}."
-        )
-
-    def _mark_login_rate_limited(self) -> None:
-        marker = self._login_rate_limit_marker_path()
-        if marker is None:
-            return
-
-        blocked_until = datetime.now() + _LOGIN_RATE_LIMIT_COOLDOWN
-        try:
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(
-                json.dumps({"blocked_until": blocked_until.isoformat()}),
-                encoding="utf-8",
-            )
-        except OSError:
-            logger.warning(
-                "Failed to persist Garmin rate-limit marker at %s.", marker
-            )
-
-    def _clear_login_rate_limit_marker(self) -> None:
-        marker = self._login_rate_limit_marker_path()
-        if marker is None:
-            return
-
-        try:
-            marker.unlink(missing_ok=True)
-        except OSError:
-            logger.warning("Failed to remove Garmin rate-limit marker at %s.", marker)
-
-    def _login_rate_limit_marker_path(self) -> Path | None:
-        if self.tokenstore_path is None:
-            return None
-        return self.tokenstore_path / "login_rate_limit.json"
-
 
 def _looks_like_rate_limit(exc: Exception) -> bool:
     if isinstance(exc, GarminConnectTooManyRequestsError):
@@ -229,3 +169,17 @@ def _suppress_garmin_library_tracebacks():
     finally:
         garminconnect_logger.setLevel(previous_garminconnect_level)
         garth_logger.setLevel(previous_garth_level)
+
+if __name__ == '__main__':
+    import os
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    email = os.getenv("GARMIN_EMAIL")
+    print(f"Email: {email}")
+    password = os.getenv("GARMIN_PASSWORD")
+    password1 = "wrong_pass"
+    client = Garmin(email, password1)
+    client.login()
+    print(client)
+
+
