@@ -169,17 +169,3 @@ def _suppress_garmin_library_tracebacks():
     finally:
         garminconnect_logger.setLevel(previous_garminconnect_level)
         garth_logger.setLevel(previous_garth_level)
-
-if __name__ == '__main__':
-    import os
-    from dotenv import load_dotenv
-    load_dotenv(override=True)
-    email = os.getenv("GARMIN_EMAIL")
-    print(f"Email: {email}")
-    password = os.getenv("GARMIN_PASSWORD")
-    password1 = "wrong_pass"
-    client = Garmin(email, password1)
-    client.login()
-    print(client)
-
-
