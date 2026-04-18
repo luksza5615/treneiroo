@@ -36,6 +36,7 @@ from garmin_buddy.ingestion.fit_parser import FitParser
 from garmin_buddy.ingestion.garmin_client import (
     GarminClient,
     GarminClientError,
+    GarminMFARequiredError,
     GarminRateLimitError,
 )
 from garmin_buddy.integrations.google_sheets_training_log import (
@@ -75,6 +76,7 @@ def init_services() -> Services:
         cfg.garmin_email,
         cfg.garmin_password,
         tokenstore_path=cfg.fit_dir_path.parent / ".garmin_session",
+        prompt_mfa=_read_garmin_mfa_code,
     )
     filestore = FitFileStore(cfg)
     parser = FitParser()
@@ -146,6 +148,17 @@ def _build_lab_payload(
     }
 
 
+def _read_garmin_mfa_code() -> str:
+    code = str(st.session_state.get("garmin_mfa_code", "")).strip()
+    if code:
+        return code
+
+    raise GarminMFARequiredError(
+        "Garmin requested MFA. Enter the current Garmin MFA code in the sidebar "
+        "and retry the refresh."
+    )
+
+
 # ----------APP---------
 def main():
     st.set_page_config(page_title="Garmin Buddy", layout="wide")
@@ -176,6 +189,12 @@ def main():
         st.divider()
 
         st.header("🔄 Refresh activities    ")
+        st.text_input(
+            "Garmin MFA code",
+            key="garmin_mfa_code",
+            type="password",
+            help="Use only when Garmin requests multi factor authentication.",
+        )
         if st.button("Refresh", width="stretch"):
             try:
                 with st.spinner("Syncing activities..."):
@@ -203,9 +222,7 @@ def main():
     col3.metric("Ascent ↗️", f"{metrics.get('ascent_m', 0):,.0f} m")
     col4.metric("Avg HR ❤️", f"{metrics.get('avg_hr', 0):.0f} bpm")
 
-    tabs = st.tabs(
-        ["Activities", "Weekly", "AI Analysis", "AI Review", "AI Plan Prep"]
-    )
+    tabs = st.tabs(["Activities", "Weekly", "AI Analysis", "AI Review", "AI Plan Prep"])
 
     with tabs[0]:
         st.subheader("Activities")
@@ -422,8 +439,12 @@ def main():
         else:
             training_log_loader = _build_training_log_loader(services.config)
             profile_col_1, profile_col_2 = st.columns(2)
-            athlete_name = profile_col_1.text_input("Athlete name", key="prep_athlete_name")
-            target_event = profile_col_2.text_input("Target event", key="prep_target_event")
+            athlete_name = profile_col_1.text_input(
+                "Athlete name", key="prep_athlete_name"
+            )
+            target_event = profile_col_2.text_input(
+                "Target event", key="prep_target_event"
+            )
             goal_text = st.text_area(
                 "Goals",
                 key="prep_goals",
@@ -487,7 +508,9 @@ def main():
                     "Google Sheets training log is not configured. The workflow will continue with missing-data markers."
                 )
 
-            if st.button("Generate strategy", type="primary", key="prep_generate_strategy"):
+            if st.button(
+                "Generate strategy", type="primary", key="prep_generate_strategy"
+            ):
                 with st.spinner("Generating macro strategy..."):
                     tool_registry = PreparationToolRegistry(
                         repository=services.repo,
@@ -506,7 +529,9 @@ def main():
                             end_date=end,
                         ),
                     )
-                st.session_state["preparation_strategy_id"] = result.strategy.strategy_id
+                st.session_state["preparation_strategy_id"] = (
+                    result.strategy.strategy_id
+                )
                 st.markdown(render_preparation_md(result))
 
             strategy_id = st.session_state.get("preparation_strategy_id")

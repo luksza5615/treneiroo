@@ -1,4 +1,6 @@
 import logging
+import sys
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,23 +23,31 @@ class GarminRateLimitError(GarminClientError):
     """Raised when Garmin rejects requests due to rate limiting."""
 
 
+class GarminMFARequiredError(GarminClientError):
+    """Raised when Garmin requires MFA and the app cannot supply a code."""
+
+
 class GarminClient:
     def __init__(
-        self, email: str, password: str, tokenstore_path: Path | None = None
+        self,
+        email: str,
+        password: str,
+        tokenstore_path: Path | None = None,
+        prompt_mfa: Callable[[], str] | None = None,
     ) -> None:
         self.email = email
         self.password = password
         self.tokenstore_path = tokenstore_path
+        self.prompt_mfa = prompt_mfa or self._default_prompt_mfa
         self._client: Garmin | None = None
 
     def login_to_garmin(self) -> None:
-        client = Garmin(self.email, self.password)
-        client.garth.configure(status_forcelist=(408, 500, 502, 503, 504))
-
         try:
-            self._login(client)
+            client = self._login()
             self._client = client
             logger.info("Connected to garmin")
+        except GarminClientError:
+            raise
         except Exception as exc:
             if _looks_like_rate_limit(exc):
                 raise GarminRateLimitError(
@@ -53,25 +63,36 @@ class GarminClient:
             logger.exception("Failed to connect.")
             raise
 
-    def _login(self, client: Garmin) -> None:
-        if self.tokenstore_path is None:
+    def _login(self) -> Garmin:
+        tokenstore = self._tokenstore_arg()
+        if tokenstore is not None:
             with _suppress_garmin_library_tracebacks():
-                client.login()
-            return
+                try:
+                    client = Garmin()
+                    client.login(tokenstore)
+                    return client
+                except (
+                    FileNotFoundError,
+                    GarminConnectAuthenticationError,
+                    GarminConnectConnectionError,
+                ):
+                    logger.info(
+                        "Saved Garmin session at %s could not be restored. "
+                        "Falling back to credential login.",
+                        self.tokenstore_path,
+                    )
 
-        if self._tokenstore_ready():
-            with _suppress_garmin_library_tracebacks():
-                client.login(tokenstore=str(self.tokenstore_path))
-        else:
-            logger.info(
-                "Garmin token cache not found at %s. Falling back to credential login.",
-                self.tokenstore_path,
-            )
-            with _suppress_garmin_library_tracebacks():
+        client = Garmin(
+            email=self.email,
+            password=self.password,
+            prompt_mfa=self.prompt_mfa,
+        )
+        with _suppress_garmin_library_tracebacks():
+            if tokenstore is None:
                 client.login()
-
-        self.tokenstore_path.mkdir(parents=True, exist_ok=True)
-        client.garth.dump(str(self.tokenstore_path))
+            else:
+                client.login(tokenstore)
+        return client
 
     def get_garmin_activities_history(
         self, start_date=None, end_date=None, window_days=90
@@ -139,13 +160,27 @@ class GarminClient:
 
         return garmin_activity_id, garmin_activity_type, garmin_activity_date
 
-    def _tokenstore_ready(self) -> bool:
+    def _tokenstore_arg(self) -> str | None:
         if self.tokenstore_path is None:
-            return False
+            return None
 
-        oauth1_token = self.tokenstore_path / "oauth1_token.json"
-        oauth2_token = self.tokenstore_path / "oauth2_token.json"
-        return oauth1_token.exists() and oauth2_token.exists()
+        self.tokenstore_path.mkdir(parents=True, exist_ok=True)
+        return str(self.tokenstore_path)
+
+    def _default_prompt_mfa(self) -> str:
+        if not sys.stdin.isatty():
+            raise GarminMFARequiredError(
+                "Garmin requested MFA. Configure an MFA callback or run the sync "
+                "from an interactive terminal."
+            )
+
+        code = input("Garmin MFA code: ").strip()
+        if not code:
+            raise GarminMFARequiredError(
+                "Garmin requested MFA, but no MFA code was provided."
+            )
+
+        return code
 
 
 def _looks_like_rate_limit(exc: Exception) -> bool:
@@ -159,13 +194,9 @@ def _looks_like_rate_limit(exc: Exception) -> bool:
 @contextmanager
 def _suppress_garmin_library_tracebacks():
     garminconnect_logger = logging.getLogger("garminconnect")
-    garth_logger = logging.getLogger("garth")
     previous_garminconnect_level = garminconnect_logger.level
-    previous_garth_level = garth_logger.level
     garminconnect_logger.setLevel(logging.CRITICAL)
-    garth_logger.setLevel(logging.CRITICAL)
     try:
         yield
     finally:
         garminconnect_logger.setLevel(previous_garminconnect_level)
-        garth_logger.setLevel(previous_garth_level)

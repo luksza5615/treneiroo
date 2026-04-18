@@ -2,28 +2,29 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 from garminconnect import GarminConnectTooManyRequestsError
 
 from garmin_buddy.ingestion import garmin_client as garmin_client_module
-from garmin_buddy.ingestion.garmin_client import GarminClient, GarminRateLimitError
+from garmin_buddy.ingestion.garmin_client import (
+    GarminClient,
+    GarminMFARequiredError,
+    GarminRateLimitError,
+)
 
 
 class _FakeGarmin:
-    def __init__(self, email: str, password: str) -> None:
-        self.email = email
-        self.password = password
-        self.garth = Mock()
+    def __init__(self) -> None:
         self.login = Mock()
         self.get_activities_by_date = Mock()
 
 
-def test_login_to_garmin_uses_tokenstore_and_persists_tokens(
+def test_login_to_garmin_restores_saved_tokens_first(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    fake_client = _FakeGarmin("user@example.com", "secret")
+    fake_client = _FakeGarmin()
     garmin_ctor = Mock(return_value=fake_client)
     monkeypatch.setattr(garmin_client_module, "Garmin", garmin_ctor)
 
@@ -35,35 +36,55 @@ def test_login_to_garmin_uses_tokenstore_and_persists_tokens(
 
     client.login_to_garmin()
 
-    garmin_ctor.assert_called_once_with("user@example.com", "secret")
-    fake_client.garth.configure.assert_called_once_with(
-        status_forcelist=(408, 500, 502, 503, 504)
-    )
-    fake_client.login.assert_called_once_with(tokenstore=str(tmp_path / ".garmin_session"))
-    fake_client.garth.dump.assert_called_once_with(str(tmp_path / ".garmin_session"))
+    garmin_ctor.assert_called_once_with()
+    fake_client.login.assert_called_once_with(str(tmp_path / ".garmin_session"))
 
 
-def test_login_to_garmin_falls_back_to_credentials_when_tokenstore_missing(
+def test_login_to_garmin_falls_back_to_credentials_when_saved_tokens_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    fake_client = _FakeGarmin("user@example.com", "secret")
-    fake_client.login.side_effect = [FileNotFoundError("missing"), None]
-    monkeypatch.setattr(garmin_client_module, "Garmin", Mock(return_value=fake_client))
+    restored_client = _FakeGarmin()
+    restored_client.login.side_effect = FileNotFoundError("missing")
+    fresh_client = _FakeGarmin()
+    prompt_mfa = Mock(return_value="123456")
+    garmin_ctor = Mock(side_effect=[restored_client, fresh_client])
+    monkeypatch.setattr(garmin_client_module, "Garmin", garmin_ctor)
 
     client = GarminClient(
         "user@example.com",
         "secret",
         tokenstore_path=tmp_path / ".garmin_session",
+        prompt_mfa=prompt_mfa,
     )
 
     client.login_to_garmin()
 
-    assert fake_client.login.call_args_list[0].kwargs == {
-        "tokenstore": str(tmp_path / ".garmin_session")
-    }
-    assert fake_client.login.call_args_list[1].args == ()
-    assert fake_client.login.call_args_list[1].kwargs == {}
-    fake_client.garth.dump.assert_called_once_with(str(tmp_path / ".garmin_session"))
+    assert garmin_ctor.call_args_list == [
+        call(),
+        call(
+            email="user@example.com",
+            password="secret",
+            prompt_mfa=prompt_mfa,
+        ),
+    ]
+    restored_client.login.assert_called_once_with(str(tmp_path / ".garmin_session"))
+    fresh_client.login.assert_called_once_with(str(tmp_path / ".garmin_session"))
+
+
+def test_default_prompt_mfa_requires_interactive_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    monkeypatch.setattr(garmin_client_module.sys, "stdin", _FakeStdin())
+
+    client = GarminClient("user@example.com", "secret")
+
+    with pytest.raises(GarminMFARequiredError, match="Configure an MFA callback"):
+        client._default_prompt_mfa()
 
 
 def test_get_garmin_activities_history_raises_rate_limit_error() -> None:
