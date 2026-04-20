@@ -19,15 +19,11 @@ def test_render_preparation_md_includes_strategy_and_phase_sections() -> None:
     result = PreparationResult(
         context=NormalizedPreparationContext(
             profile=RunnerProfileArtifact(
-                athlete_name="Runner",
-                goals=["Run a strong 10k"],
-                target_event="10k",
-                target_date="2026-05-01",
-                availability=["Tue", "Thu"],
-                constraints=[],
-                preferences=[],
-                injury_notes=[],
-                source_notes=[],
+                profile_context=(
+                    "Target event: 10k on 2026-05-01\n"
+                    "Goal: run a strong 10k\n"
+                    "Availability: Tue and Thu"
+                ),
             ),
             lab_summary="Ferritin slightly low.",
             lab_markers={"ferritin": 28.0},
@@ -99,5 +95,6 @@ def test_render_preparation_md_includes_strategy_and_phase_sections() -> None:
     markdown = render_preparation_md(result)
 
     assert "# Strategy: Build toward a 10k peak." in markdown
+    assert "## Profile Context" in markdown
     assert "## Weekly Goals" in markdown
     assert "## Critique Blocking Issues" in markdown

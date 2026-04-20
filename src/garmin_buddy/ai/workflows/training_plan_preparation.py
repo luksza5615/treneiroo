@@ -319,15 +319,10 @@ def _collect_context(
         missing_data.append(profile_result.error or "runner_profile_unavailable")
         profile = RunnerProfileArtifact.from_payload(
             {
-                "athlete_name": None,
-                "goals": ["Maintain consistent training progression."],
-                "target_event": None,
-                "target_date": None,
-                "availability": [],
-                "constraints": [],
-                "preferences": [],
-                "injury_notes": [],
-                "source_notes": ["Profile loader did not provide data."],
+                "profile_context": (
+                    "Maintain consistent training progression. "
+                    "Profile loader did not provide richer planning context."
+                ),
             }
         )
 

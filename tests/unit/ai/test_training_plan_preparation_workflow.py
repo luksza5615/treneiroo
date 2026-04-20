@@ -41,15 +41,9 @@ class _FakeLLM:
         return self.responses.pop(0)
 
 
-def _profile_payload(goals: str = "Sub-40 10k") -> dict[str, object]:
+def _profile_payload(profile_context: str = "Goal: Sub-40 10k") -> dict[str, object]:
     return {
-        "athlete_name": "Runner",
-        "goals": [goals],
-        "availability": [],
-        "constraints": [],
-        "preferences": [],
-        "injury_notes": [],
-        "source_notes": [],
+        "profile_context": profile_context,
     }
 
 
@@ -142,7 +136,7 @@ def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
         repository=_DummyRepository(),
         max_tool_calls=8,
         training_log_loader=_training_log_loader,
-        profile_loader=lambda: _profile_payload(goals="Different goal"),
+        profile_loader=lambda: _profile_payload(profile_context="Goal: Different goal"),
         lab_loader=lambda: _lab_payload(),
     )
     phase_result = generate_phase_plan_from_strategy(

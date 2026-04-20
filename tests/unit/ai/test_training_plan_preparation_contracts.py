@@ -9,17 +9,11 @@ from garmin_buddy.ai.preparation_contracts import (
 )
 
 
-def test_runner_profile_artifact_requires_at_least_one_goal() -> None:
-    with pytest.raises(ValueError, match="goals must contain between 1 and 50 items"):
+def test_runner_profile_artifact_requires_non_empty_profile_context() -> None:
+    with pytest.raises(ValueError, match="profile_context must be non-empty"):
         RunnerProfileArtifact.from_payload(
             {
-                "athlete_name": None,
-                "goals": [],
-                "availability": [],
-                "constraints": [],
-                "preferences": [],
-                "injury_notes": [],
-                "source_notes": [],
+                "profile_context": "   ",
             }
         )
 

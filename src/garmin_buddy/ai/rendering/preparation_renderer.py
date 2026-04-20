@@ -6,7 +6,9 @@ from garmin_buddy.ai.preparation_contracts import PreparationResult
 def render_preparation_md(result: PreparationResult) -> str:
     sections = [
         f"# Strategy: {result.strategy.strategic_goal}",
-        _render_list_section("Profile Goals", result.context.profile.goals),
+        _render_paragraph_section(
+            "Profile Context", result.context.profile.profile_context
+        ),
         _render_paragraph_section("Lab Summary", result.context.lab_summary),
         _render_list_section("Lab Findings", result.lab_analysis.findings),
         _render_list_section(

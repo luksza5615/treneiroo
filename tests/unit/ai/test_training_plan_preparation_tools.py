@@ -28,7 +28,7 @@ def test_preparation_tool_registry_caches_duplicate_requests() -> None:
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=2,
-        profile_loader=lambda: {"goals": ["Goal"], "availability": [], "constraints": [], "preferences": [], "injury_notes": [], "source_notes": []},
+        profile_loader=lambda: {"profile_context": "Goal: Goal"},
     )
 
     first = registry.call_tool("get_runner_profile", {})

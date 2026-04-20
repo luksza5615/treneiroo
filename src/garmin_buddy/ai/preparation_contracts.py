@@ -60,54 +60,18 @@ def _validate_optional_float(field_name: str, value: Any) -> float | None:
 
 @dataclass(frozen=True)
 class RunnerProfileArtifact:
-    athlete_name: str | None
-    goals: list[str]
-    target_event: str | None
-    target_date: str | None
-    availability: list[str]
-    constraints: list[str]
-    preferences: list[str]
-    injury_notes: list[str]
-    source_notes: list[str]
+    profile_context: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "athlete_name": self.athlete_name,
-            "goals": self.goals,
-            "target_event": self.target_event,
-            "target_date": self.target_date,
-            "availability": self.availability,
-            "constraints": self.constraints,
-            "preferences": self.preferences,
-            "injury_notes": self.injury_notes,
-            "source_notes": self.source_notes,
+            "profile_context": self.profile_context,
         }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> RunnerProfileArtifact:
         return cls(
-            athlete_name=_validate_optional_string(
-                "athlete_name", payload.get("athlete_name")
-            ),
-            goals=_validate_string_list("goals", payload.get("goals", []), min_length=1),
-            target_event=_validate_optional_string(
-                "target_event", payload.get("target_event")
-            ),
-            target_date=_validate_optional_string("target_date", payload.get("target_date")),
-            availability=_validate_string_list(
-                "availability", payload.get("availability", [])
-            ),
-            constraints=_validate_string_list(
-                "constraints", payload.get("constraints", [])
-            ),
-            preferences=_validate_string_list(
-                "preferences", payload.get("preferences", [])
-            ),
-            injury_notes=_validate_string_list(
-                "injury_notes", payload.get("injury_notes", [])
-            ),
-            source_notes=_validate_string_list(
-                "source_notes", payload.get("source_notes", [])
+            profile_context=_validate_non_empty_string(
+                "profile_context", payload.get("profile_context")
             ),
         )
 

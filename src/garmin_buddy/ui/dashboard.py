@@ -122,7 +122,6 @@ def _build_training_log_loader(config: Config):
 
 def _build_lab_payload(
     uploaded_files: list[Any],
-    lab_date_text: str,
 ) -> dict[str, object]:
     extracted_texts: list[str] = []
     source_names: list[str] = []
@@ -134,14 +133,13 @@ def _build_lab_payload(
 
     combined_text = "\n\n".join(extracted_texts)
     lab_summary, lab_markers = summarize_lab_text(combined_text)
-    lab_date = lab_date_text.strip() or None
 
     return {
         "lab_summary": lab_summary,
         "lab_markers": lab_markers,
         "lab_fingerprint": build_lab_fingerprint(
             lab_text=combined_text,
-            lab_date=lab_date,
+            lab_date=None,
             markers=lab_markers,
         ),
         "source_notes": source_names,
@@ -438,48 +436,16 @@ def main():
             )
         else:
             training_log_loader = _build_training_log_loader(services.config)
-            profile_col_1, profile_col_2 = st.columns(2)
-            athlete_name = profile_col_1.text_input(
-                "Athlete name", key="prep_athlete_name"
-            )
-            target_event = profile_col_2.text_input(
-                "Target event", key="prep_target_event"
-            )
-            goal_text = st.text_area(
-                "Goals",
-                key="prep_goals",
-                help="One goal per line.",
-                placeholder="Sub-40 10k\nBuild consistent weekly volume",
-            )
-            availability_text = st.text_area(
-                "Availability",
-                key="prep_availability",
-                help="One availability note per line.",
-                placeholder="Mon easy\nWed workout\nSat long run",
-            )
-            constraints_text = st.text_area(
-                "Constraints",
-                key="prep_constraints",
-                help="One constraint per line.",
-            )
-            preferences_text = st.text_area(
-                "Preferences",
-                key="prep_preferences",
-                help="One preference per line.",
-            )
-            injury_notes_text = st.text_area(
-                "Injury / limitation notes",
-                key="prep_injury_notes",
-                help="One note per line.",
-            )
-            source_notes_text = st.text_area(
-                "Context notes",
-                key="prep_source_notes",
-                help="Extra context lines for the profile artifact.",
-            )
-            lab_date_text = st.text_input(
-                "Lab date (optional, YYYY-MM-DD)",
-                key="prep_lab_date",
+            profile_context_text = st.text_area(
+                "Planning context",
+                key="prep_profile_context",
+                height=220,
+                help="Provide the planning context in one field. Include only the details you want the strategy to use.",
+                placeholder=(
+                    "Recommended: target event and date or timeframe, primary goals, "
+                    "weekly availability, constraints or limitations, preferences, "
+                    "recent injuries, and anything else relevant for the next block."
+                ),
             )
             uploaded_lab_files = st.file_uploader(
                 "Lab documents",
@@ -491,17 +457,10 @@ def main():
 
             profile_payload = normalize_runner_profile(
                 {
-                    "athlete_name": athlete_name,
-                    "goals": goal_text,
-                    "target_event": target_event,
-                    "availability": availability_text,
-                    "constraints": constraints_text,
-                    "preferences": preferences_text,
-                    "injury_notes": injury_notes_text,
-                    "source_notes": source_notes_text,
+                    "profile_context": profile_context_text,
                 }
             )
-            lab_payload = _build_lab_payload(uploaded_lab_files or [], lab_date_text)
+            lab_payload = _build_lab_payload(uploaded_lab_files or [])
 
             if training_log_loader is None:
                 st.warning(

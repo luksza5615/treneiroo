@@ -13,32 +13,15 @@ def normalize_runner_profile(payload: Mapping[str, Any]) -> RunnerProfileArtifac
     """
 
     normalized_payload = {
-        "athlete_name": _clean_optional_text(payload.get("athlete_name")),
-        "goals": _split_lines(payload.get("goals")),
-        "target_event": _clean_optional_text(payload.get("target_event")),
-        "target_date": _clean_optional_text(payload.get("target_date")),
-        "availability": _split_lines(payload.get("availability")),
-        "constraints": _split_lines(payload.get("constraints")),
-        "preferences": _split_lines(payload.get("preferences")),
-        "injury_notes": _split_lines(payload.get("injury_notes")),
-        "source_notes": _split_lines(payload.get("source_notes")),
+        "profile_context": _normalize_multiline_text(payload.get("profile_context")),
     }
 
-    if not normalized_payload["goals"]:
-        normalized_payload["goals"] = [
+    if normalized_payload["profile_context"] is None:
+        normalized_payload["profile_context"] = (
             "Maintain consistent progression toward the next training block."
-        ]
+        )
 
     return RunnerProfileArtifact.from_payload(normalized_payload)
-
-
-def _clean_optional_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    cleaned = str(value).strip()
-    return cleaned or None
-
-
 def _split_lines(value: Any) -> list[str]:
     if value is None:
         return []
@@ -48,3 +31,10 @@ def _split_lines(value: Any) -> list[str]:
         values = str(value).splitlines()
 
     return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _normalize_multiline_text(value: Any) -> str | None:
+    lines = _split_lines(value)
+    if not lines:
+        return None
+    return "\n".join(lines)
