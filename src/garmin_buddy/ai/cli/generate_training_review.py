@@ -40,6 +40,7 @@ def main() -> int:
     db = Database.create_db(cfg)
     repo = ActivityRepository(db)
     llm = LLMService(cfg.llm_api_key)
+    run_store = RunStore(args.runs_dir)
 
     tool_registry = ToolRegistry(repo, max_tool_calls=args.max_tool_calls)
     inputs = TrainingReviewInputs(
@@ -53,25 +54,14 @@ def main() -> int:
         llm_client=llm,
         tool_registry=tool_registry,
         inputs=inputs,
+        run_store=run_store,
+        model_name=llm.model_name,
     )
 
     markdown = render_report_md(result.report)
     print(markdown)
-
-    run_store = RunStore(args.runs_dir)
-    artifact = run_store.append_run(
-        {
-            "prompt_version": "training_review_v1",
-            "model": llm.model_name,
-            "temperature": None,
-            "tool_calls": tool_registry.get_call_log(),
-            "raw_response": result.raw_response,
-            "parsed_output": result.report.to_dict(),
-            "parse_ok": result.parse_ok,
-            "retry_count": result.retry_count,
-        }
-    )
-    print(f"\nrun_id: {artifact.run_id}")
+    if result.run_id:
+        print(f"\nrun_id: {result.run_id}")
 
     return 0
 

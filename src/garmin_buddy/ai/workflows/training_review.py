@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 import json
 from typing import Any, Protocol
@@ -10,9 +10,11 @@ from garmin_buddy.ai.contracts import (
     build_fallback_training_review_report,
     parse_training_review_report,
 )
+from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
 _DEFAULT_MAX_TOOL_CALLS = 2
+_PROMPT_VERSION = "training_review_v1"
 
 
 class LLMClient(Protocol):
@@ -34,6 +36,7 @@ class TrainingReviewResult:
     raw_response: str
     parse_ok: bool
     retry_count: int
+    run_id: str | None = None
 
 
 def run_training_review(
@@ -41,83 +44,126 @@ def run_training_review(
     llm_client: LLMClient,
     tool_registry: ToolRegistry,
     inputs: TrainingReviewInputs,
+    run_store: RunStore | None = None,
+    model_name: str | None = None,
 ) -> TrainingReviewResult:
-    summary_result = tool_registry.call_tool(
-        "get_training_summary",
-        {
-            "start_date": inputs.start_date,
-            "end_date": inputs.end_date,
-            "athlete_id": inputs.athlete_id,
-        },
-    )
-    if not summary_result.ok:
-        fallback = build_fallback_training_review_report(
-            inputs.start_date,
-            inputs.end_date,
-            error_reason=summary_result.error or "summary_tool_failed",
-        )
-        return TrainingReviewResult(
-            report=fallback,
-            raw_response="",
-            parse_ok=False,
-            retry_count=0,
-        )
+    current_stage = "get_training_summary"
+    raw_response = ""
 
-    key_sessions_payload: list[dict[str, Any]] = []
-    evidence_sessions: list[dict[str, Any]] = []
-    missing_data: list[str] = []
-    if inputs.include_key_sessions:
-        key_sessions_result = tool_registry.call_tool(
-            "list_key_sessions",
+    try:
+        summary_result = tool_registry.call_tool(
+            "get_training_summary",
             {
                 "start_date": inputs.start_date,
                 "end_date": inputs.end_date,
                 "athlete_id": inputs.athlete_id,
-                "n": 5,
             },
         )
-        if key_sessions_result.ok:
-            key_sessions_payload = key_sessions_result.payload
+        if not summary_result.ok:
+            fallback = build_fallback_training_review_report(
+                inputs.start_date,
+                inputs.end_date,
+                error_reason=summary_result.error or "summary_tool_failed",
+            )
+            result = TrainingReviewResult(
+                report=fallback,
+                raw_response="",
+                parse_ok=False,
+                retry_count=0,
+            )
         else:
-            missing_data.append("key_sessions_unavailable")
+            key_sessions_payload: list[dict[str, Any]] = []
+            evidence_sessions: list[dict[str, Any]] = []
+            missing_data: list[str] = []
+            if inputs.include_key_sessions:
+                current_stage = "list_key_sessions"
+                key_sessions_result = tool_registry.call_tool(
+                    "list_key_sessions",
+                    {
+                        "start_date": inputs.start_date,
+                        "end_date": inputs.end_date,
+                        "athlete_id": inputs.athlete_id,
+                        "n": 5,
+                    },
+                )
+                if key_sessions_result.ok:
+                    key_sessions_payload = key_sessions_result.payload
+                else:
+                    missing_data.append("key_sessions_unavailable")
 
-    evidence_sessions = _maybe_fetch_evidence(
-        llm_client=llm_client,
-        tool_registry=tool_registry,
-        start_date=inputs.start_date,
-        end_date=inputs.end_date,
-        athlete_id=inputs.athlete_id,
-        key_sessions=key_sessions_payload,
-        missing_data=missing_data,
+            current_stage = "fetch_evidence"
+            evidence_sessions = _maybe_fetch_evidence(
+                llm_client=llm_client,
+                tool_registry=tool_registry,
+                start_date=inputs.start_date,
+                end_date=inputs.end_date,
+                athlete_id=inputs.athlete_id,
+                key_sessions=key_sessions_payload,
+                missing_data=missing_data,
+            )
+
+            prompt = _build_prompt(
+                start_date=inputs.start_date,
+                end_date=inputs.end_date,
+                athlete_id=inputs.athlete_id,
+                training_summary=summary_result.payload,
+                key_sessions=key_sessions_payload,
+                evidence_sessions=evidence_sessions,
+                missing_data=missing_data,
+            )
+
+            # The review workflow must use the live model output here; leaving a fixture
+            # in place hides prompt/schema regressions and breaks the repair path.
+            current_stage = "generate_report"
+            raw_response = llm_client.generate(prompt)
+
+            current_stage = "parse_or_repair"
+            parse_ok, report = _parse_or_repair(
+                llm_client=llm_client,
+                start_date=inputs.start_date,
+                end_date=inputs.end_date,
+                raw_response=raw_response,
+            )
+
+            result = TrainingReviewResult(
+                report=report,
+                raw_response=raw_response,
+                parse_ok=parse_ok,
+                retry_count=0 if parse_ok else 1,
+            )
+    except Exception as exc:
+        if run_store is not None:
+            run_store.append_failure(
+                _build_run_payload(
+                    inputs=inputs,
+                    model_name=model_name,
+                    tool_registry=tool_registry,
+                    raw_response=raw_response,
+                    parse_ok=False,
+                    retry_count=0,
+                    failed_stage=current_stage,
+                    parsed_output=None,
+                ),
+                exc,
+            )
+        raise
+
+    if run_store is None:
+        return result
+
+    artifact = run_store.append_run(
+        _build_run_payload(
+            inputs=inputs,
+            model_name=model_name,
+            tool_registry=tool_registry,
+            raw_response=result.raw_response,
+            parse_ok=result.parse_ok,
+            retry_count=result.retry_count,
+            failed_stage=None,
+            parsed_output=result.report.to_dict(),
+        )
     )
-
-    prompt = _build_prompt(
-        start_date=inputs.start_date,
-        end_date=inputs.end_date,
-        athlete_id=inputs.athlete_id,
-        training_summary=summary_result.payload,
-        key_sessions=key_sessions_payload,
-        evidence_sessions=evidence_sessions,
-        missing_data=missing_data,
-    )
-
-    # The review workflow must use the live model output here; leaving a fixture
-    # in place hides prompt/schema regressions and breaks the repair path.
-    raw_response = llm_client.generate(prompt)
-
-    parse_ok, report = _parse_or_repair(
-        llm_client=llm_client,
-        start_date=inputs.start_date,
-        end_date=inputs.end_date,
-        raw_response=raw_response,
-    )
-
-    return TrainingReviewResult(
-        report=report,
-        raw_response=raw_response,
-        parse_ok=parse_ok,
-        retry_count=0 if parse_ok else 1,
-    )
+    return replace(result, run_id=artifact.run_id)
 
 
 def _parse_or_repair(
@@ -265,3 +311,38 @@ def _json_default(value: object) -> str:
         return value.isoformat()
 
     return str(value)
+
+
+def _build_run_payload(
+    *,
+    inputs: TrainingReviewInputs,
+    model_name: str | None,
+    tool_registry: ToolRegistry,
+    raw_response: str,
+    parse_ok: bool,
+    retry_count: int,
+    failed_stage: str | None,
+    parsed_output: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "workflow": "training_review",
+        "prompt_version": _PROMPT_VERSION,
+        "model": model_name,
+        "temperature": None,
+        "inputs": {
+            "start_date": inputs.start_date,
+            "end_date": inputs.end_date,
+            "athlete_id": inputs.athlete_id,
+            "include_key_sessions": inputs.include_key_sessions,
+            "max_tool_calls": inputs.max_tool_calls,
+        },
+        "tool_calls": tool_registry.get_call_log(),
+        "raw_response": raw_response,
+        "parse_ok": parse_ok,
+        "retry_count": retry_count,
+    }
+    if parsed_output is not None:
+        payload["parsed_output"] = parsed_output
+    if failed_stage is not None:
+        payload["failed_stage"] = failed_stage
+    return payload

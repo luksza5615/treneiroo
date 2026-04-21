@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
 from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
 from garmin_buddy.ai.tools.training_plan_preparation_tools import (
@@ -191,7 +193,49 @@ def test_run_training_plan_preparation_serializes_date_context_values() -> None:
     assert result.context.lab_markers["sample_date"] == date(2026, 1, 30)
 
 
+def test_run_training_plan_preparation_persists_failed_runs() -> None:
+    llm = _FailingLLM("503 Service Unavailable")
+    temp_dir = _workspace_temp_dir("prep-workflow-failure")
+    store = PreparationRunStore(temp_dir)
+    registry = PreparationToolRegistry(
+        repository=_DummyRepository(),
+        max_tool_calls=8,
+        training_log_loader=_training_log_loader,
+        profile_loader=lambda: _profile_payload(),
+        lab_loader=lambda: _lab_payload(),
+    )
+
+    with pytest.raises(RuntimeError, match="503 Service Unavailable"):
+        run_training_plan_preparation(
+            llm_client=llm,
+            tool_registry=registry,
+            run_store=store,
+            inputs=TrainingPlanPreparationInputs(
+                start_date=date(2026, 2, 1),
+                end_date=date(2026, 2, 28),
+            ),
+        )
+
+    saved_line = json.loads(
+        (temp_dir / "training_plan_preparation_runs.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    assert saved_line["run_status"] == "failed"
+    assert saved_line["stage"] == "strategy_generation"
+    assert saved_line["failed_stage"] == "lab_analysis"
+    assert saved_line["error"]["type"] == "RuntimeError"
+
+
 def _workspace_temp_dir(name: str) -> Path:
     path = Path("zignored") / "pytest-temp" / f"{name}-{uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+class _FailingLLM:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def generate(self, prompt: str, *, system_instruction: str | None = None) -> str:
+        raise RuntimeError(self.message)

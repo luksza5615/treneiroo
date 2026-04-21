@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
+import traceback
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +33,7 @@ class RunStore:
     def append_run(self, payload: dict[str, Any]) -> RunArtifact:
         run_id = str(uuid4())
         artifact_payload = _format_dates(_redact_sensitive(payload))
+        artifact_payload.setdefault("run_status", "succeeded")
         artifact_payload["run_id"] = run_id
         artifact_payload["created_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -41,9 +43,17 @@ class RunStore:
 
         return RunArtifact(run_id=run_id, payload=artifact_payload)
 
+    def append_failure(
+        self, payload: dict[str, Any], error: Exception | BaseException
+    ) -> RunArtifact:
+        failure_payload = dict(payload)
+        failure_payload["run_status"] = "failed"
+        failure_payload["error"] = _serialize_exception(error)
+        return self.append_run(failure_payload)
+
 
 def _format_dates(obj: Any) -> Any:
-    if isinstance(obj, datetime):
+    if isinstance(obj, (date, datetime)):
         return obj.isoformat()
 
     if isinstance(obj, dict):
@@ -72,3 +82,13 @@ def _redact_sensitive(payload: dict[str, Any]) -> dict[str, Any]:
         return _redact(value)
 
     return {key: _redact_value(key, val) for key, val in payload.items()}
+
+
+def _serialize_exception(error: Exception | BaseException) -> dict[str, str]:
+    return {
+        "type": type(error).__name__,
+        "message": str(error),
+        "traceback": "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        ),
+    }

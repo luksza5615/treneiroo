@@ -58,112 +58,138 @@ def run_training_plan_preparation(
     inputs: TrainingPlanPreparationInputs,
 ) -> PreparationResult:
     """Generate the macro strategy first because it is the highest-value approval boundary."""
+    current_stage = "collect_context"
+    context: NormalizedPreparationContext | None = None
+    strategy_id: str | None = None
 
-    context, context_debug = _collect_context(tool_registry=tool_registry, inputs=inputs)
-    lab_analysis, lab_parse_ok, lab_retries = _resolve_lab_analysis(
-        llm_client=llm_client,
-        run_store=run_store,
-        context=context,
-    )
-    past_phase_review, phase_parse_ok, phase_retries = _run_structured_stage(
-        stage_name="past_phase_review_v1",
-        llm_client=llm_client,
-        format_kwargs=context_debug,
-        parser=PastPhaseReviewArtifact.from_payload,
-        fallback_builder=build_fallback_past_phase_review,
-    )
-    synthesis, synthesis_parse_ok, synthesis_retries = _run_structured_stage(
-        stage_name="synthesis_v1",
-        llm_client=llm_client,
-        format_kwargs={
-            "profile_json": _json(context.profile.to_dict()),
-            "lab_analysis_json": _json(lab_analysis.to_dict()),
-            "past_phase_review_json": _json(past_phase_review.to_dict()),
-        },
-        parser=PreparationSynthesisArtifact.from_payload,
-        fallback_builder=build_fallback_synthesis,
-    )
-    strength_plan, strength_parse_ok, strength_retries = _run_structured_stage(
-        stage_name="strength_recommendation_v1",
-        llm_client=llm_client,
-        format_kwargs={
-            "profile_json": _json(context.profile.to_dict()),
-            "synthesis_json": _json(synthesis.to_dict()),
-        },
-        parser=StrengthPlanArtifact.from_payload,
-        fallback_builder=build_fallback_strength_plan,
-    )
+    try:
+        context, context_debug = _collect_context(
+            tool_registry=tool_registry, inputs=inputs
+        )
+        current_stage = "lab_analysis"
+        lab_analysis, lab_parse_ok, lab_retries = _resolve_lab_analysis(
+            llm_client=llm_client,
+            run_store=run_store,
+            context=context,
+        )
+        current_stage = "past_phase_review"
+        past_phase_review, phase_parse_ok, phase_retries = _run_structured_stage(
+            stage_name="past_phase_review_v1",
+            llm_client=llm_client,
+            format_kwargs=context_debug,
+            parser=PastPhaseReviewArtifact.from_payload,
+            fallback_builder=build_fallback_past_phase_review,
+        )
+        current_stage = "synthesis"
+        synthesis, synthesis_parse_ok, synthesis_retries = _run_structured_stage(
+            stage_name="synthesis_v1",
+            llm_client=llm_client,
+            format_kwargs={
+                "profile_json": _json(context.profile.to_dict()),
+                "lab_analysis_json": _json(lab_analysis.to_dict()),
+                "past_phase_review_json": _json(past_phase_review.to_dict()),
+            },
+            parser=PreparationSynthesisArtifact.from_payload,
+            fallback_builder=build_fallback_synthesis,
+        )
+        current_stage = "strength_recommendation"
+        strength_plan, strength_parse_ok, strength_retries = _run_structured_stage(
+            stage_name="strength_recommendation_v1",
+            llm_client=llm_client,
+            format_kwargs={
+                "profile_json": _json(context.profile.to_dict()),
+                "synthesis_json": _json(synthesis.to_dict()),
+            },
+            parser=StrengthPlanArtifact.from_payload,
+            fallback_builder=build_fallback_strength_plan,
+        )
 
-    strategy_id = str(uuid4())
-    strategy, strategy_parse_ok, strategy_retries = _run_strategy_stage(
-        llm_client=llm_client,
-        strategy_id=strategy_id,
-        input_hash=context.input_hash,
-        context=context,
-        synthesis=synthesis,
-        strength_plan=strength_plan,
-        planning_horizon_months=inputs.planning_horizon_months,
-    )
+        strategy_id = str(uuid4())
+        current_stage = "macro_strategy"
+        strategy, strategy_parse_ok, strategy_retries = _run_strategy_stage(
+            llm_client=llm_client,
+            strategy_id=strategy_id,
+            input_hash=context.input_hash,
+            context=context,
+            synthesis=synthesis,
+            strength_plan=strength_plan,
+            planning_horizon_months=inputs.planning_horizon_months,
+        )
 
-    run_store.save_strategy_state(
-        strategy_id,
-        {
-            "strategy_id": strategy_id,
-            "approved": False,
-            "stale": False,
-            "lab_fingerprint": context.lab_fingerprint,
-            "context": context.to_dict(),
-            "lab_analysis": lab_analysis.to_dict(),
-            "past_phase_review": past_phase_review.to_dict(),
-            "synthesis": synthesis.to_dict(),
-            "strength_plan": strength_plan.to_dict(),
-            "strategy": strategy.to_dict(),
-            "phase_plan": None,
-            "critique": None,
-        },
-    )
+        current_stage = "save_strategy_state"
+        run_store.save_strategy_state(
+            strategy_id,
+            {
+                "strategy_id": strategy_id,
+                "approved": False,
+                "stale": False,
+                "lab_fingerprint": context.lab_fingerprint,
+                "context": context.to_dict(),
+                "lab_analysis": lab_analysis.to_dict(),
+                "past_phase_review": past_phase_review.to_dict(),
+                "synthesis": synthesis.to_dict(),
+                "strength_plan": strength_plan.to_dict(),
+                "strategy": strategy.to_dict(),
+                "phase_plan": None,
+                "critique": None,
+            },
+        )
 
-    parse_ok = all(
-        [
-            lab_parse_ok,
-            phase_parse_ok,
-            synthesis_parse_ok,
-            strength_parse_ok,
-            strategy_parse_ok,
-        ]
-    )
-    retry_count = (
-        lab_retries
-        + phase_retries
-        + synthesis_retries
-        + strength_retries
-        + strategy_retries
-    )
+        parse_ok = all(
+            [
+                lab_parse_ok,
+                phase_parse_ok,
+                synthesis_parse_ok,
+                strength_parse_ok,
+                strategy_parse_ok,
+            ]
+        )
+        retry_count = (
+            lab_retries
+            + phase_retries
+            + synthesis_retries
+            + strength_retries
+            + strategy_retries
+        )
 
-    result = PreparationResult(
-        context=context,
-        lab_analysis=lab_analysis,
-        past_phase_review=past_phase_review,
-        synthesis=synthesis,
-        strength_plan=strength_plan,
-        strategy=strategy,
-        phase_plan=None,
-        critique=None,
-        parse_ok=parse_ok,
-        retry_count=retry_count,
-    )
-    run_store.append_run(
-        {
-            "workflow": "training_plan_preparation",
-            "stage": "strategy_generation",
-            "input_hash": context.input_hash,
-            "tool_calls": tool_registry.get_call_log(),
-            "parse_ok": parse_ok,
-            "retry_count": retry_count,
-            "result": result.to_dict(),
-        }
-    )
-    return result
+        result = PreparationResult(
+            context=context,
+            lab_analysis=lab_analysis,
+            past_phase_review=past_phase_review,
+            synthesis=synthesis,
+            strength_plan=strength_plan,
+            strategy=strategy,
+            phase_plan=None,
+            critique=None,
+            parse_ok=parse_ok,
+            retry_count=retry_count,
+        )
+        current_stage = "append_run"
+        run_store.append_run(
+            {
+                "workflow": "training_plan_preparation",
+                "stage": "strategy_generation",
+                "input_hash": context.input_hash,
+                "tool_calls": tool_registry.get_call_log(),
+                "parse_ok": parse_ok,
+                "retry_count": retry_count,
+                "result": result.to_dict(),
+            }
+        )
+        return result
+    except Exception as exc:
+        run_store.append_failure(
+            _build_preparation_failure_payload(
+                workflow_stage="strategy_generation",
+                failed_stage=current_stage,
+                inputs=inputs,
+                tool_registry=tool_registry,
+                context=context,
+                strategy_id=strategy_id,
+            ),
+            exc,
+        )
+        raise
 
 
 def approve_training_plan_strategy(
@@ -190,74 +216,73 @@ def generate_phase_plan_from_strategy(
     strategy_id: str,
 ) -> PreparationResult:
     """Resume from an approved strategy so detailed planning never bypasses review."""
+    current_stage = "load_strategy_state"
+    current_context: NormalizedPreparationContext | None = None
 
-    state = run_store.load_strategy_state(strategy_id)
-    if state is None:
-        raise ValueError(f"Strategy '{strategy_id}' was not found.")
-    if state.get("approved") is not True:
-        raise ValueError("Strategy must be approved before generating the detailed phase.")
+    try:
+        state = run_store.load_strategy_state(strategy_id)
+        if state is None:
+            raise ValueError(f"Strategy '{strategy_id}' was not found.")
+        if state.get("approved") is not True:
+            raise ValueError(
+                "Strategy must be approved before generating the detailed phase."
+            )
 
-    current_context, _ = _collect_context(tool_registry=tool_registry, inputs=inputs)
-    stored_strategy = dict(state["strategy"])
-    if current_context.input_hash != stored_strategy["input_hash"]:
-        stored_strategy["approval_status"] = "stale"
-        state["strategy"] = stored_strategy
-        state["stale"] = True
-        state["stale_reason"] = "upstream_input_hash_changed"
-        run_store.save_strategy_state(strategy_id, state)
+        current_stage = "collect_context"
+        current_context, _ = _collect_context(tool_registry=tool_registry, inputs=inputs)
+        stored_strategy = dict(state["strategy"])
+        if current_context.input_hash != stored_strategy["input_hash"]:
+            stored_strategy["approval_status"] = "stale"
+            state["strategy"] = stored_strategy
+            state["stale"] = True
+            state["stale_reason"] = "upstream_input_hash_changed"
+            run_store.save_strategy_state(strategy_id, state)
 
-        return PreparationResult(
-            context=current_context,
-            lab_analysis=LabAnalysisArtifact.from_payload(state["lab_analysis"]),
-            past_phase_review=PastPhaseReviewArtifact.from_payload(
-                state["past_phase_review"]
-            ),
-            synthesis=PreparationSynthesisArtifact.from_payload(state["synthesis"]),
-            strength_plan=StrengthPlanArtifact.from_payload(state["strength_plan"]),
-            strategy=MacroStrategyArtifact.from_payload(stored_strategy),
-            phase_plan=None,
-            critique=None,
-            parse_ok=False,
-            retry_count=0,
-            strategy_stale=True,
-        )
+            stale_result = PreparationResult(
+                context=current_context,
+                lab_analysis=LabAnalysisArtifact.from_payload(state["lab_analysis"]),
+                past_phase_review=PastPhaseReviewArtifact.from_payload(
+                    state["past_phase_review"]
+                ),
+                synthesis=PreparationSynthesisArtifact.from_payload(state["synthesis"]),
+                strength_plan=StrengthPlanArtifact.from_payload(state["strength_plan"]),
+                strategy=MacroStrategyArtifact.from_payload(stored_strategy),
+                phase_plan=None,
+                critique=None,
+                parse_ok=False,
+                retry_count=0,
+                strategy_stale=True,
+            )
+            current_stage = "append_run"
+            run_store.append_run(
+                {
+                    "workflow": "training_plan_preparation",
+                    "stage": "phase_generation",
+                    "strategy_id": strategy_id,
+                    "input_hash": current_context.input_hash,
+                    "tool_calls": tool_registry.get_call_log(),
+                    "parse_ok": False,
+                    "retry_count": 0,
+                    "result": stale_result.to_dict(),
+                }
+            )
+            return stale_result
 
-    synthesis = PreparationSynthesisArtifact.from_payload(state["synthesis"])
-    strength_plan = StrengthPlanArtifact.from_payload(state["strength_plan"])
-    strategy = MacroStrategyArtifact.from_payload(stored_strategy)
+        synthesis = PreparationSynthesisArtifact.from_payload(state["synthesis"])
+        strength_plan = StrengthPlanArtifact.from_payload(state["strength_plan"])
+        strategy = MacroStrategyArtifact.from_payload(stored_strategy)
 
-    phase_plan, phase_parse_ok, phase_retries = _run_phase_plan_stage(
-        llm_client=llm_client,
-        strategy=strategy,
-        synthesis=synthesis,
-        strength_plan=strength_plan,
-        first_phase_weeks=inputs.first_phase_weeks,
-        revision_adjustments=[],
-    )
-    critique, critique_parse_ok, critique_retries = _run_structured_stage(
-        stage_name="critique_v1",
-        llm_client=llm_client,
-        format_kwargs={
-            "profile_json": _json(current_context.profile.to_dict()),
-            "strategy_json": _json(strategy.to_dict()),
-            "phase_plan_json": _json(phase_plan.to_dict()),
-        },
-        parser=CritiqueArtifact.from_payload,
-        fallback_builder=build_fallback_critique,
-    )
-
-    if critique.decision == "revise" and critique.required_adjustments:
-        phase_plan, revised_parse_ok, revised_retries = _run_phase_plan_stage(
+        current_stage = "phase_plan"
+        phase_plan, phase_parse_ok, phase_retries = _run_phase_plan_stage(
             llm_client=llm_client,
             strategy=strategy,
             synthesis=synthesis,
             strength_plan=strength_plan,
             first_phase_weeks=inputs.first_phase_weeks,
-            revision_adjustments=critique.required_adjustments,
+            revision_adjustments=[],
         )
-        phase_parse_ok = phase_parse_ok and revised_parse_ok
-        phase_retries += revised_retries
-        critique, critique_parse_ok, second_critique_retries = _run_structured_stage(
+        current_stage = "critique"
+        critique, critique_parse_ok, critique_retries = _run_structured_stage(
             stage_name="critique_v1",
             llm_client=llm_client,
             format_kwargs={
@@ -268,39 +293,81 @@ def generate_phase_plan_from_strategy(
             parser=CritiqueArtifact.from_payload,
             fallback_builder=build_fallback_critique,
         )
-        critique_retries += second_critique_retries
 
-    parse_ok = phase_parse_ok and critique_parse_ok
-    retry_count = phase_retries + critique_retries
+        if critique.decision == "revise" and critique.required_adjustments:
+            current_stage = "phase_plan_revision"
+            phase_plan, revised_parse_ok, revised_retries = _run_phase_plan_stage(
+                llm_client=llm_client,
+                strategy=strategy,
+                synthesis=synthesis,
+                strength_plan=strength_plan,
+                first_phase_weeks=inputs.first_phase_weeks,
+                revision_adjustments=critique.required_adjustments,
+            )
+            phase_parse_ok = phase_parse_ok and revised_parse_ok
+            phase_retries += revised_retries
+            current_stage = "critique_revision"
+            critique, critique_parse_ok, second_critique_retries = _run_structured_stage(
+                stage_name="critique_v1",
+                llm_client=llm_client,
+                format_kwargs={
+                    "profile_json": _json(current_context.profile.to_dict()),
+                    "strategy_json": _json(strategy.to_dict()),
+                    "phase_plan_json": _json(phase_plan.to_dict()),
+                },
+                parser=CritiqueArtifact.from_payload,
+                fallback_builder=build_fallback_critique,
+            )
+            critique_retries += second_critique_retries
 
-    state["phase_plan"] = phase_plan.to_dict()
-    state["critique"] = critique.to_dict()
-    run_store.save_strategy_state(strategy_id, state)
+        parse_ok = phase_parse_ok and critique_parse_ok
+        retry_count = phase_retries + critique_retries
 
-    result = PreparationResult(
-        context=current_context,
-        lab_analysis=LabAnalysisArtifact.from_payload(state["lab_analysis"]),
-        past_phase_review=PastPhaseReviewArtifact.from_payload(state["past_phase_review"]),
-        synthesis=synthesis,
-        strength_plan=strength_plan,
-        strategy=strategy,
-        phase_plan=phase_plan,
-        critique=critique,
-        parse_ok=parse_ok,
-        retry_count=retry_count,
-    )
-    run_store.append_run(
-        {
-            "workflow": "training_plan_preparation",
-            "stage": "phase_generation",
-            "strategy_id": strategy_id,
-            "tool_calls": tool_registry.get_call_log(),
-            "parse_ok": parse_ok,
-            "retry_count": retry_count,
-            "result": result.to_dict(),
-        }
-    )
-    return result
+        state["phase_plan"] = phase_plan.to_dict()
+        state["critique"] = critique.to_dict()
+        current_stage = "save_strategy_state"
+        run_store.save_strategy_state(strategy_id, state)
+
+        result = PreparationResult(
+            context=current_context,
+            lab_analysis=LabAnalysisArtifact.from_payload(state["lab_analysis"]),
+            past_phase_review=PastPhaseReviewArtifact.from_payload(
+                state["past_phase_review"]
+            ),
+            synthesis=synthesis,
+            strength_plan=strength_plan,
+            strategy=strategy,
+            phase_plan=phase_plan,
+            critique=critique,
+            parse_ok=parse_ok,
+            retry_count=retry_count,
+        )
+        current_stage = "append_run"
+        run_store.append_run(
+            {
+                "workflow": "training_plan_preparation",
+                "stage": "phase_generation",
+                "strategy_id": strategy_id,
+                "tool_calls": tool_registry.get_call_log(),
+                "parse_ok": parse_ok,
+                "retry_count": retry_count,
+                "result": result.to_dict(),
+            }
+        )
+        return result
+    except Exception as exc:
+        run_store.append_failure(
+            _build_preparation_failure_payload(
+                workflow_stage="phase_generation",
+                failed_stage=current_stage,
+                inputs=inputs,
+                tool_registry=tool_registry,
+                context=current_context,
+                strategy_id=strategy_id,
+            ),
+            exc,
+        )
+        raise
 
 
 def _collect_context(
@@ -603,3 +670,32 @@ def _json_default(value: object) -> str:
         return value.isoformat()
 
     return str(value)
+
+
+def _build_preparation_failure_payload(
+    *,
+    workflow_stage: str,
+    failed_stage: str,
+    inputs: TrainingPlanPreparationInputs,
+    tool_registry: PreparationToolRegistry,
+    context: NormalizedPreparationContext | None,
+    strategy_id: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "workflow": "training_plan_preparation",
+        "stage": workflow_stage,
+        "failed_stage": failed_stage,
+        "tool_calls": tool_registry.get_call_log(),
+        "inputs": {
+            "start_date": inputs.start_date,
+            "end_date": inputs.end_date,
+            "athlete_id": inputs.athlete_id,
+            "planning_horizon_months": inputs.planning_horizon_months,
+            "first_phase_weeks": inputs.first_phase_weeks,
+        },
+    }
+    if context is not None:
+        payload["input_hash"] = context.input_hash
+    if strategy_id is not None:
+        payload["strategy_id"] = strategy_id
+    return payload

@@ -383,48 +383,37 @@ def main():
             )
 
             if st.button("🧠 Generate AI review", type="primary"):
-                with st.spinner("Generating training review..."):
-                    tool_registry = ToolRegistry(
-                        services.repo, max_tool_calls=max_tool_calls
-                    )
-                    inputs = TrainingReviewInputs(
-                        start_date=start,
-                        end_date=end,
-                        include_key_sessions=include_key_sessions,
-                        max_tool_calls=max_tool_calls,
-                    )
-                    result = run_training_review(
-                        llm_client=services.llm,
-                        tool_registry=tool_registry,
-                        inputs=inputs,
-                    )
-
-                    markdown = render_report_md(result.report)
-                    st.markdown(markdown)
-
-                    run_store = RunStore(Path("runs"))
-                    artifact = run_store.append_run(
-                        {
-                            "prompt_version": "training_review_v1",
-                            "model": services.llm.model_name,
-                            "temperature": None,
-                            "tool_calls": tool_registry.get_call_log(),
-                            "raw_response": result.raw_response,
-                            "parsed_output": result.report.to_dict(),
-                            "parse_ok": result.parse_ok,
-                            "retry_count": result.retry_count,
-                        }
-                    )
-
-                with st.expander("Show debug"):
-                    st.write(
-                        {
-                            "run_id": artifact.run_id,
-                            "prompt_version": "training_review_v1",
-                            "parse_ok": result.parse_ok,
-                            "retry_count": result.retry_count,
-                        }
-                    )
+                try:
+                    with st.spinner("Generating training review..."):
+                        tool_registry = ToolRegistry(
+                            services.repo, max_tool_calls=max_tool_calls
+                        )
+                        inputs = TrainingReviewInputs(
+                            start_date=start,
+                            end_date=end,
+                            include_key_sessions=include_key_sessions,
+                            max_tool_calls=max_tool_calls,
+                        )
+                        result = run_training_review(
+                            llm_client=services.llm,
+                            tool_registry=tool_registry,
+                            inputs=inputs,
+                            run_store=RunStore(Path("runs")),
+                            model_name=services.llm.model_name,
+                        )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.markdown(render_report_md(result.report))
+                    with st.expander("Show debug"):
+                        st.write(
+                            {
+                                "run_id": result.run_id,
+                                "prompt_version": "training_review_v1",
+                                "parse_ok": result.parse_ok,
+                                "retry_count": result.retry_count,
+                            }
+                        )
 
     with tabs[4]:
         st.subheader("AI plan preparation")
@@ -470,28 +459,32 @@ def main():
             if st.button(
                 "Generate strategy", type="primary", key="prep_generate_strategy"
             ):
-                with st.spinner("Generating macro strategy..."):
-                    tool_registry = PreparationToolRegistry(
-                        repository=services.repo,
-                        max_tool_calls=8,
-                        training_log_loader=training_log_loader,
-                        profile_loader=lambda: profile_payload.to_dict(),
-                        lab_loader=lambda: lab_payload,
-                        previous_artifact_loader=run_store.load_strategy_state,
+                try:
+                    with st.spinner("Generating macro strategy..."):
+                        tool_registry = PreparationToolRegistry(
+                            repository=services.repo,
+                            max_tool_calls=8,
+                            training_log_loader=training_log_loader,
+                            profile_loader=lambda: profile_payload.to_dict(),
+                            lab_loader=lambda: lab_payload,
+                            previous_artifact_loader=run_store.load_strategy_state,
+                        )
+                        result = run_training_plan_preparation(
+                            llm_client=services.llm,
+                            tool_registry=tool_registry,
+                            run_store=run_store,
+                            inputs=TrainingPlanPreparationInputs(
+                                start_date=start,
+                                end_date=end,
+                            ),
+                        )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state["preparation_strategy_id"] = (
+                        result.strategy.strategy_id
                     )
-                    result = run_training_plan_preparation(
-                        llm_client=services.llm,
-                        tool_registry=tool_registry,
-                        run_store=run_store,
-                        inputs=TrainingPlanPreparationInputs(
-                            start_date=start,
-                            end_date=end,
-                        ),
-                    )
-                st.session_state["preparation_strategy_id"] = (
-                    result.strategy.strategy_id
-                )
-                st.markdown(render_preparation_md(result))
+                    st.markdown(render_preparation_md(result))
 
             strategy_id = st.session_state.get("preparation_strategy_id")
             if strategy_id:
@@ -502,7 +495,7 @@ def main():
                         approve_training_plan_strategy(
                             run_store=run_store, strategy_id=strategy_id
                         )
-                    except ValueError as exc:
+                    except Exception as exc:
                         st.error(str(exc))
                     else:
                         st.success("Strategy approved.")

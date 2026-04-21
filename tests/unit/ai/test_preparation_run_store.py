@@ -23,6 +23,23 @@ def test_preparation_run_store_persists_runs_and_strategy_state() -> None:
     assert strategy_state["strategy"]["strategy_id"] == "strategy-1"
 
 
+def test_preparation_run_store_persists_failure_artifacts() -> None:
+    temp_dir = _workspace_temp_dir("run-store-failure")
+    store = PreparationRunStore(temp_dir)
+
+    try:
+        raise RuntimeError("503 Service Unavailable")
+    except RuntimeError as exc:
+        artifact = store.append_failure({"stage": "strategy_generation"}, exc)
+
+    runs_path = temp_dir / "training_plan_preparation_runs.jsonl"
+    saved_line = json.loads(runs_path.read_text(encoding="utf-8").strip())
+
+    assert artifact.payload["run_status"] == "failed"
+    assert saved_line["stage"] == "strategy_generation"
+    assert saved_line["error"]["type"] == "RuntimeError"
+
+
 def _workspace_temp_dir(name: str) -> Path:
     path = Path("zignored") / "pytest-temp" / f"{name}-{uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)

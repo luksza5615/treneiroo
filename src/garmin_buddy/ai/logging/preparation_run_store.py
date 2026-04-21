@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from garmin_buddy.ai.logging.run_store import _redact_sensitive
+from garmin_buddy.ai.logging.run_store import _redact_sensitive, _serialize_exception
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class PreparationRunStore:
     def append_run(self, payload: dict[str, Any]) -> PreparationRunArtifact:
         run_id = str(uuid4())
         artifact_payload = _format_dates(dict(_redact_sensitive(payload)))
+        artifact_payload.setdefault("run_status", "succeeded")
         artifact_payload["run_id"] = run_id
         artifact_payload["created_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -36,6 +37,14 @@ class PreparationRunStore:
             handle.write(json.dumps(artifact_payload) + "\n")
 
         return PreparationRunArtifact(run_id=run_id, payload=artifact_payload)
+
+    def append_failure(
+        self, payload: dict[str, Any], error: Exception | BaseException
+    ) -> PreparationRunArtifact:
+        failure_payload = dict(payload)
+        failure_payload["run_status"] = "failed"
+        failure_payload["error"] = _serialize_exception(error)
+        return self.append_run(failure_payload)
 
     def save_strategy_state(self, strategy_id: str, payload: dict[str, Any]) -> None:
         path = self._strategy_dir / f"{strategy_id}.json"

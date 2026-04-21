@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from garmin_buddy.ai.logging.run_store import RunStore, _format_dates
@@ -66,3 +67,19 @@ def test_append_run_formats_nested_datetime_values(tmp_path: Path) -> None:
     assert isinstance(artifact.payload["events"][0]["started_at"], str)
     assert isinstance(artifact.payload["nested"]["ended_at"], str)
     assert isinstance(payload["events"][0]["started_at"], datetime)
+
+
+def test_append_failure_persists_error_metadata(tmp_path: Path) -> None:
+    store = RunStore(tmp_path)
+
+    try:
+        raise RuntimeError("503 Service Unavailable")
+    except RuntimeError as exc:
+        artifact = store.append_failure({"api_key": "secret"}, exc)
+
+    saved_line = json.loads((tmp_path / "training_review_runs.jsonl").read_text())
+
+    assert artifact.payload["run_status"] == "failed"
+    assert saved_line["api_key"] == "***redacted***"
+    assert saved_line["error"]["type"] == "RuntimeError"
+    assert "503 Service Unavailable" in saved_line["error"]["message"]
