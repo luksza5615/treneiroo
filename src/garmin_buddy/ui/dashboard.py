@@ -220,7 +220,7 @@ def main():
     col3.metric("Ascent ↗️", f"{metrics.get('ascent_m', 0):,.0f} m")
     col4.metric("Avg HR ❤️", f"{metrics.get('avg_hr', 0):.0f} bpm")
 
-    tabs = st.tabs(["Activities", "Weekly", "AI Analysis", "AI Review", "AI Plan Prep"])
+    tabs = st.tabs(["Activities", "Weekly", "AI Review", "AI Plan Prep"])
 
     with tabs[0]:
         st.subheader("Activities")
@@ -351,20 +351,6 @@ def main():
             )
 
     with tabs[2]:
-        st.subheader("AI analysis")
-        st.caption("Generates insights for the selected date range.")
-
-        if df.empty:
-            st.info("Pick a range with activities first.")
-        else:
-            if st.button("🤖 Generate AI analysis", type="primary"):
-                with st.spinner("Analyzing..."):
-                    analysis_text = services.llm.analyze_training_period(
-                        df, metrics, start, end
-                    )
-                st.markdown(analysis_text)
-
-    with tabs[3]:
         st.subheader("AI review")
         st.caption("Structured training review with evidence and priorities.")
 
@@ -415,7 +401,7 @@ def main():
                             }
                         )
 
-    with tabs[4]:
+    with tabs[3]:
         st.subheader("AI plan preparation")
         st.caption("Build a strategy first, approve it, then generate the first phase.")
 
