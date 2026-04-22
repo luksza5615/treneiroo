@@ -1,6 +1,6 @@
 from google import genai
 
-_LLM_MODEL = "gemini-3-flash-preview"
+_LLM_MODEL = "gemini-3.1-flash-lite-preview"
 
 
 class LLMService:

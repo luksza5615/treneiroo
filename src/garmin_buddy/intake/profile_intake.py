@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from garmin_buddy.ai.preparation_contracts import RunnerProfileArtifact
+from garmin_buddy.ai.contracts.preparation_contracts import RunnerProfileArtifact
 
 
 def normalize_runner_profile(payload: Mapping[str, Any]) -> RunnerProfileArtifact:
@@ -22,6 +22,8 @@ def normalize_runner_profile(payload: Mapping[str, Any]) -> RunnerProfileArtifac
         )
 
     return RunnerProfileArtifact.from_payload(normalized_payload)
+
+
 def _split_lines(value: Any) -> list[str]:
     if value is None:
         return []

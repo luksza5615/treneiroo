@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from garmin_buddy.ai.contracts import TrainingReviewReport
+from garmin_buddy.ai.contracts.contracts import TrainingReviewReport
 from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 from garmin_buddy.ai.workflows.training_review import (
@@ -55,7 +55,6 @@ def _valid_report_json() -> str:
         '"evidence":["2026-01-02 activity:123 Long run"],'
         '"confidence":0.6,'
         '"missing_data":[],'
-        '"disclaimer":"This report is informational only and is not medical advice."'
         "}"
     )
 

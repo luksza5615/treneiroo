@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from garmin_buddy.ai.contracts import (
+from garmin_buddy.ai.contracts.contracts import (
     build_fallback_training_review_report,
     parse_training_review_report,
     validate_training_review_report,
@@ -22,7 +22,6 @@ def _valid_payload() -> dict[str, object]:
         "evidence": ["2026-01-31 activity:123456 Long run 18.2 km"],
         "confidence": 0.74,
         "missing_data": ["hrv_not_available"],
-        "disclaimer": "This report is informational only and is not medical advice.",
     }
 
 
@@ -61,14 +60,18 @@ def test_validate_training_review_report_returns_error_messages() -> None:
     assert "confidence" in errors[0]
 
 
-def test_build_fallback_training_review_report_returns_schema_compliant_payload() -> None:
+def test_build_fallback_training_review_report_returns_schema_compliant_payload() -> (
+    None
+):
     report = build_fallback_training_review_report(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
         error_reason="invalid_json_from_model",
     )
 
-    assert report.headline == "Training review unavailable for 2026-01-01 to 2026-01-07."
+    assert (
+        report.headline == "Training review unavailable for 2026-01-01 to 2026-01-07."
+    )
     assert len(report.priorities_next_7_days) == 3
     assert report.confidence == 0.0
     assert "invalid_json_from_model" in report.missing_data

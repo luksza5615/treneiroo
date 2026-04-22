@@ -23,7 +23,6 @@ instructions:
     evidence: list[string] # 0..10 items, format: YYYY-MM-DD activity:<id> <label>
     confidence: float # 0..1
     missing_data: list[string]
-    disclaimer: string
   guardrails:
     - Return valid JSON only.
     - Use exactly the schema keys and no extras.

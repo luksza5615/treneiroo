@@ -5,7 +5,7 @@ from datetime import date, datetime
 import json
 from typing import Any, Protocol
 
-from garmin_buddy.ai.contracts import (
+from garmin_buddy.ai.contracts.contracts import (
     TrainingReviewReport,
     build_fallback_training_review_report,
     parse_training_review_report,
@@ -112,8 +112,6 @@ def run_training_review(
                 missing_data=missing_data,
             )
 
-            # The review workflow must use the live model output here; leaving a fixture
-            # in place hides prompt/schema regressions and breaks the repair path.
             current_stage = "generate_report"
             raw_response = llm_client.generate(prompt)
 
@@ -138,6 +136,7 @@ def run_training_review(
                     inputs=inputs,
                     model_name=model_name,
                     tool_registry=tool_registry,
+                    prompt=prompt,
                     raw_response=raw_response,
                     parse_ok=False,
                     retry_count=0,
@@ -156,6 +155,7 @@ def run_training_review(
             inputs=inputs,
             model_name=model_name,
             tool_registry=tool_registry,
+            prompt=prompt,
             raw_response=result.raw_response,
             parse_ok=result.parse_ok,
             retry_count=result.retry_count,
@@ -318,6 +318,7 @@ def _build_run_payload(
     inputs: TrainingReviewInputs,
     model_name: str | None,
     tool_registry: ToolRegistry,
+    prompt: str,
     raw_response: str,
     parse_ok: bool,
     retry_count: int,
@@ -337,6 +338,7 @@ def _build_run_payload(
             "max_tool_calls": inputs.max_tool_calls,
         },
         "tool_calls": tool_registry.get_call_log(),
+        "prompt": prompt,
         "raw_response": raw_response,
         "parse_ok": parse_ok,
         "retry_count": retry_count,

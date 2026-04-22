@@ -5,9 +5,6 @@ from datetime import date
 import re
 from typing import Any, Mapping
 
-_DISCLAIMER_TEMPLATE = (
-    "This report is informational only and is not medical advice."
-)
 _EVIDENCE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\s+activity:[^\s]+\s+.+$")
 _REQUIRED_FIELDS = {
     "headline",
@@ -17,7 +14,6 @@ _REQUIRED_FIELDS = {
     "evidence",
     "confidence",
     "missing_data",
-    "disclaimer",
 }
 
 
@@ -30,7 +26,6 @@ class TrainingReviewReport:
     evidence: list[str]
     confidence: float
     missing_data: list[str]
-    disclaimer: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,7 +36,6 @@ class TrainingReviewReport:
             "evidence": self.evidence,
             "confidence": self.confidence,
             "missing_data": self.missing_data,
-            "disclaimer": self.disclaimer,
         }
 
 
@@ -56,8 +50,9 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
     )
     evidence = _validate_evidence(payload["evidence"])
     confidence = _validate_confidence(payload["confidence"])
-    missing_data = _validate_string_list("missing_data", payload["missing_data"], 0, 100)
-    disclaimer = _validate_non_empty_string("disclaimer", payload["disclaimer"])
+    missing_data = _validate_string_list(
+        "missing_data", payload["missing_data"], 0, 100
+    )
 
     return TrainingReviewReport(
         headline=headline,
@@ -67,7 +62,6 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
         evidence=evidence,
         confidence=confidence,
         missing_data=missing_data,
-        disclaimer=disclaimer,
     )
 
 
@@ -88,26 +82,18 @@ def build_fallback_training_review_report(
     *,
     error_reason: str | None = None,
 ) -> TrainingReviewReport:
-    missing_data = ["structured_report_generation_failed"]
+    missing_data = []
     if error_reason:
         missing_data.append(error_reason)
 
     return TrainingReviewReport(
-        headline=(
-            f"Training review unavailable for {start_date.isoformat()} to "
-            f"{end_date.isoformat()}."
-        ),
-        positives=["Training data was collected for this period."],
-        risks=["Detailed AI analysis could not be generated reliably."],
-        priorities_next_7_days=[
-            "Review recent sessions manually for any unusual fatigue signals.",
-            "Prioritize one easy session before your next hard effort.",
-            "Re-run the review after new activities are synced.",
-        ],
+        headline=("Training review unavailable"),
+        positives=[],
+        risks=[],
+        priorities_next_7_days=[],
         evidence=[],
         confidence=0.0,
         missing_data=missing_data,
-        disclaimer=_DISCLAIMER_TEMPLATE,
     )
 
 

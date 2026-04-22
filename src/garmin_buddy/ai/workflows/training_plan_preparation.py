@@ -12,7 +12,7 @@ from uuid import uuid4
 import yaml
 
 from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
-from garmin_buddy.ai.preparation_contracts import (
+from garmin_buddy.ai.contracts.preparation_contracts import (
     CritiqueArtifact,
     LabAnalysisArtifact,
     MacroStrategyArtifact,
@@ -31,14 +31,18 @@ from garmin_buddy.ai.preparation_contracts import (
     build_fallback_strength_plan,
     build_fallback_synthesis,
 )
-from garmin_buddy.ai.tools.training_plan_preparation_tools import PreparationToolRegistry
+from garmin_buddy.ai.tools.training_plan_preparation_tools import (
+    PreparationToolRegistry,
+)
 
 _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "preparation"
 T = TypeVar("T")
 
 
 class LLMClient(Protocol):
-    def generate(self, prompt: str, *, system_instruction: str | None = None) -> str: ...
+    def generate(
+        self, prompt: str, *, system_instruction: str | None = None
+    ) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -229,7 +233,9 @@ def generate_phase_plan_from_strategy(
             )
 
         current_stage = "collect_context"
-        current_context, _ = _collect_context(tool_registry=tool_registry, inputs=inputs)
+        current_context, _ = _collect_context(
+            tool_registry=tool_registry, inputs=inputs
+        )
         stored_strategy = dict(state["strategy"])
         if current_context.input_hash != stored_strategy["input_hash"]:
             stored_strategy["approval_status"] = "stale"
@@ -307,16 +313,18 @@ def generate_phase_plan_from_strategy(
             phase_parse_ok = phase_parse_ok and revised_parse_ok
             phase_retries += revised_retries
             current_stage = "critique_revision"
-            critique, critique_parse_ok, second_critique_retries = _run_structured_stage(
-                stage_name="critique_v1",
-                llm_client=llm_client,
-                format_kwargs={
-                    "profile_json": _json(current_context.profile.to_dict()),
-                    "strategy_json": _json(strategy.to_dict()),
-                    "phase_plan_json": _json(phase_plan.to_dict()),
-                },
-                parser=CritiqueArtifact.from_payload,
-                fallback_builder=build_fallback_critique,
+            critique, critique_parse_ok, second_critique_retries = (
+                _run_structured_stage(
+                    stage_name="critique_v1",
+                    llm_client=llm_client,
+                    format_kwargs={
+                        "profile_json": _json(current_context.profile.to_dict()),
+                        "strategy_json": _json(strategy.to_dict()),
+                        "phase_plan_json": _json(phase_plan.to_dict()),
+                    },
+                    parser=CritiqueArtifact.from_payload,
+                    fallback_builder=build_fallback_critique,
+                )
             )
             critique_retries += second_critique_retries
 
@@ -406,7 +414,9 @@ def _collect_context(
             "athlete_id": inputs.athlete_id,
         },
     )
-    planned_rows = list(training_log_result.payload or []) if training_log_result.ok else []
+    planned_rows = (
+        list(training_log_result.payload or []) if training_log_result.ok else []
+    )
     if not training_log_result.ok:
         missing_data.append(training_log_result.error or "training_log_unavailable")
 
@@ -615,7 +625,9 @@ def _run_structured_stage(
     prompt = _load_prompt(stage_name)
     system_instruction = prompt["instructions"]["system"]
     user_prompt = prompt["user_template"].format(**format_kwargs)
-    raw_response = llm_client.generate(user_prompt, system_instruction=system_instruction)
+    raw_response = llm_client.generate(
+        user_prompt, system_instruction=system_instruction
+    )
 
     try:
         payload = json.loads(raw_response)

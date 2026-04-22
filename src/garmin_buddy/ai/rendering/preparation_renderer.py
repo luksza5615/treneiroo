@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from garmin_buddy.ai.preparation_contracts import PreparationResult
+from garmin_buddy.ai.contracts.preparation_contracts import PreparationResult
 
 
 def render_preparation_md(result: PreparationResult) -> str:
@@ -17,18 +17,26 @@ def render_preparation_md(result: PreparationResult) -> str:
         _render_list_section(
             "Past Phase Issues", result.past_phase_review.execution_issues
         ),
-        _render_list_section("Planning Priorities", result.synthesis.planning_priorities),
+        _render_list_section(
+            "Planning Priorities", result.synthesis.planning_priorities
+        ),
         _render_list_section("Strength Objectives", result.strength_plan.objectives),
         _render_list_section("Mesocycles", result.strategy.mesocycles),
         f"**Strategy approval:** {result.strategy.approval_status}",
     ]
 
     if result.phase_plan is not None:
-        sections.append(_render_list_section("Weekly Goals", result.phase_plan.weekly_goals))
-        sections.append(_render_list_section("Session Plan", result.phase_plan.session_plan))
+        sections.append(
+            _render_list_section("Weekly Goals", result.phase_plan.weekly_goals)
+        )
+        sections.append(
+            _render_list_section("Session Plan", result.phase_plan.session_plan)
+        )
     if result.critique is not None:
         sections.append(
-            _render_list_section("Critique Blocking Issues", result.critique.blocking_issues)
+            _render_list_section(
+                "Critique Blocking Issues", result.critique.blocking_issues
+            )
         )
         sections.append(
             _render_list_section(

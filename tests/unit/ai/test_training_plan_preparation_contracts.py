@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from garmin_buddy.ai.preparation_contracts import (
+from garmin_buddy.ai.contracts.preparation_contracts import (
     MacroStrategyArtifact,
     PhasePlanArtifact,
     RunnerProfileArtifact,
