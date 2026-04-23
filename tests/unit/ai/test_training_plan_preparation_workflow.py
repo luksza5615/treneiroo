@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import json
 from pathlib import Path
+from typing import Any, Mapping
 from uuid import uuid4
 
 import pandas as pd
@@ -36,10 +37,22 @@ class _DummyRepository:
 class _FakeLLM:
     def __init__(self, responses: list[str]) -> None:
         self.responses = responses
-        self.calls: list[str] = []
+        self.calls: list[dict[str, Any]] = []
 
-    def generate(self, prompt: str, *, system_instruction: str | None = None) -> str:
-        self.calls.append(prompt)
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "system_instruction": system_instruction,
+                "response_json_schema": response_json_schema,
+            }
+        )
         return self.responses.pop(0)
 
 
@@ -101,6 +114,63 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
     assert result.strategy.approval_status == "pending"
     assert result.phase_plan is None
     assert result.parse_ok is True
+    assert llm.calls[0]["response_json_schema"]["required"] == [
+        "summary",
+        "findings",
+        "training_implications",
+        "risk_flags",
+        "missing_data",
+        "confidence",
+    ]
+    assert llm.calls[4]["response_json_schema"]["required"] == [
+        "planning_horizon",
+        "strategic_goal",
+        "mesocycles",
+        "progression_logic",
+        "recovery_logic",
+        "risks",
+        "assumptions",
+        "missing_data",
+        "confidence",
+    ]
+
+
+def test_run_training_plan_preparation_repair_uses_structured_output_schema() -> None:
+    llm = _FakeLLM(
+        [
+            "{invalid json",
+            '{"summary":"Lab ok","findings":["Ferritin is low-normal"],"training_implications":["Use conservative intensity"],"risk_flags":["ferritin_watch"],"missing_data":[],"confidence":0.7}',
+            '{"summary":"Review","adherence_summary":"Mostly on plan","positive_patterns":["Good consistency"],"execution_issues":["One missed quality day"],"risk_flags":["fatigue_watch"],"missing_data":[],"confidence":0.7}',
+            '{"summary":"Synthesis","key_constraints":["Ferritin trend"],"key_opportunities":["Strong consistency"],"planning_priorities":["Stable volume"],"risk_controls":["Watch fatigue"],"assumptions":["No acute injury"],"missing_data":[],"confidence":0.75}',
+            '{"objectives":["Durability"],"weekly_frequency":"2x/week","session_focuses":["Single-leg strength"],"integration_notes":["After easy days"],"contraindications":["Reduce on fatigue"],"missing_data":[],"confidence":0.7}',
+            '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
+        ]
+    )
+    store = PreparationRunStore(_workspace_temp_dir("prep-repair"))
+    registry = PreparationToolRegistry(
+        repository=_DummyRepository(),
+        max_tool_calls=8,
+        training_log_loader=_training_log_loader,
+        profile_loader=lambda: _profile_payload(),
+        lab_loader=lambda: _lab_payload(),
+    )
+
+    result = run_training_plan_preparation(
+        llm_client=llm,
+        tool_registry=registry,
+        run_store=store,
+        inputs=TrainingPlanPreparationInputs(
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+        ),
+    )
+
+    assert result.parse_ok is True
+    assert result.retry_count == 1
+    assert llm.calls[1]["system_instruction"] == "Return valid JSON only."
+    assert llm.calls[1]["response_json_schema"] == llm.calls[0][
+        "response_json_schema"
+    ]
 
 
 def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
@@ -154,6 +224,73 @@ def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
 
     assert phase_result.strategy_stale is True
     assert phase_result.strategy.approval_status == "stale"
+
+
+def test_generate_phase_plan_uses_structured_output_schemas() -> None:
+    initial_llm = _FakeLLM(
+        [
+            '{"summary":"Lab ok","findings":["Ferritin is low-normal"],"training_implications":["Use conservative intensity"],"risk_flags":["ferritin_watch"],"missing_data":[],"confidence":0.7}',
+            '{"summary":"Review","adherence_summary":"Mostly on plan","positive_patterns":["Good consistency"],"execution_issues":["One missed quality day"],"risk_flags":["fatigue_watch"],"missing_data":[],"confidence":0.7}',
+            '{"summary":"Synthesis","key_constraints":["Ferritin trend"],"key_opportunities":["Strong consistency"],"planning_priorities":["Stable volume"],"risk_controls":["Watch fatigue"],"assumptions":["No acute injury"],"missing_data":[],"confidence":0.75}',
+            '{"objectives":["Durability"],"weekly_frequency":"2x/week","session_focuses":["Single-leg strength"],"integration_notes":["After easy days"],"contraindications":["Reduce on fatigue"],"missing_data":[],"confidence":0.7}',
+            '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
+        ]
+    )
+    store = PreparationRunStore(_workspace_temp_dir("prep-phase"))
+    registry = PreparationToolRegistry(
+        repository=_DummyRepository(),
+        max_tool_calls=8,
+        training_log_loader=_training_log_loader,
+        profile_loader=lambda: _profile_payload(),
+        lab_loader=lambda: _lab_payload(),
+    )
+    initial_result = run_training_plan_preparation(
+        llm_client=initial_llm,
+        tool_registry=registry,
+        run_store=store,
+        inputs=TrainingPlanPreparationInputs(
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+        ),
+    )
+    approve_training_plan_strategy(
+        run_store=store, strategy_id=initial_result.strategy.strategy_id
+    )
+
+    phase_llm = _FakeLLM(
+        [
+            '{"phase_length_weeks":4,"weekly_goals":["Rebuild rhythm"],"session_plan":["Easy run","Workout"],"strength_integration":["One short session"],"rationale_links":["Matches strategy"],"risks":["Fatigue"],"missing_data":[],"confidence":0.72}',
+            '{"decision":"accept","blocking_issues":[],"non_blocking_improvements":["Monitor fatigue"],"required_adjustments":[],"missing_data":[],"confidence":0.8}',
+        ]
+    )
+    phase_registry = PreparationToolRegistry(
+        repository=_DummyRepository(),
+        max_tool_calls=8,
+        training_log_loader=_training_log_loader,
+        profile_loader=lambda: _profile_payload(),
+        lab_loader=lambda: _lab_payload(),
+    )
+
+    result = generate_phase_plan_from_strategy(
+        llm_client=phase_llm,
+        tool_registry=phase_registry,
+        run_store=store,
+        inputs=TrainingPlanPreparationInputs(
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+        ),
+        strategy_id=initial_result.strategy.strategy_id,
+    )
+
+    assert result.parse_ok is True
+    assert result.phase_plan is not None
+    assert result.critique is not None
+    assert phase_llm.calls[0]["response_json_schema"]["required"][0] == (
+        "phase_length_weeks"
+    )
+    assert phase_llm.calls[1]["response_json_schema"]["properties"]["decision"][
+        "enum"
+    ] == ["accept", "revise"]
 
 
 def test_run_training_plan_preparation_serializes_date_context_values() -> None:
@@ -237,5 +374,11 @@ class _FailingLLM:
     def __init__(self, message: str) -> None:
         self.message = message
 
-    def generate(self, prompt: str, *, system_instruction: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
+    ) -> str:
         raise RuntimeError(self.message)

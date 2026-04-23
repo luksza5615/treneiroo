@@ -39,6 +39,193 @@ _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "preparation"
 T = TypeVar("T")
 
 
+def _string_schema() -> dict[str, Any]:
+    return {"type": "string"}
+
+
+def _string_list_schema(*, min_items: int = 0, max_items: int = 50) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": _string_schema(),
+        "minItems": min_items,
+        "maxItems": max_items,
+    }
+
+
+def _confidence_schema() -> dict[str, Any]:
+    return {
+        "anyOf": [
+            {"type": "number", "minimum": 0, "maximum": 1},
+            {"type": "null"},
+        ]
+    }
+
+
+def _object_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+        "propertyOrdering": required,
+    }
+
+
+_LAB_ANALYSIS_RESPONSE_SCHEMA = _object_schema(
+    {
+        "summary": _string_schema(),
+        "findings": _string_list_schema(min_items=1),
+        "training_implications": _string_list_schema(min_items=1),
+        "risk_flags": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "summary",
+        "findings",
+        "training_implications",
+        "risk_flags",
+        "missing_data",
+        "confidence",
+    ],
+)
+_PAST_PHASE_REVIEW_RESPONSE_SCHEMA = _object_schema(
+    {
+        "summary": _string_schema(),
+        "adherence_summary": _string_schema(),
+        "positive_patterns": _string_list_schema(min_items=1),
+        "execution_issues": _string_list_schema(min_items=1),
+        "risk_flags": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "summary",
+        "adherence_summary",
+        "positive_patterns",
+        "execution_issues",
+        "risk_flags",
+        "missing_data",
+        "confidence",
+    ],
+)
+_SYNTHESIS_RESPONSE_SCHEMA = _object_schema(
+    {
+        "summary": _string_schema(),
+        "key_constraints": _string_list_schema(min_items=1),
+        "key_opportunities": _string_list_schema(min_items=1),
+        "planning_priorities": _string_list_schema(min_items=1),
+        "risk_controls": _string_list_schema(),
+        "assumptions": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "summary",
+        "key_constraints",
+        "key_opportunities",
+        "planning_priorities",
+        "risk_controls",
+        "assumptions",
+        "missing_data",
+        "confidence",
+    ],
+)
+_STRENGTH_RESPONSE_SCHEMA = _object_schema(
+    {
+        "objectives": _string_list_schema(min_items=1),
+        "weekly_frequency": _string_schema(),
+        "session_focuses": _string_list_schema(min_items=1),
+        "integration_notes": _string_list_schema(),
+        "contraindications": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "objectives",
+        "weekly_frequency",
+        "session_focuses",
+        "integration_notes",
+        "contraindications",
+        "missing_data",
+        "confidence",
+    ],
+)
+_MACRO_STRATEGY_RESPONSE_SCHEMA = _object_schema(
+    {
+        "planning_horizon": _string_schema(),
+        "strategic_goal": _string_schema(),
+        "mesocycles": _string_list_schema(min_items=1),
+        "progression_logic": _string_list_schema(min_items=1),
+        "recovery_logic": _string_list_schema(min_items=1),
+        "risks": _string_list_schema(),
+        "assumptions": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "planning_horizon",
+        "strategic_goal",
+        "mesocycles",
+        "progression_logic",
+        "recovery_logic",
+        "risks",
+        "assumptions",
+        "missing_data",
+        "confidence",
+    ],
+)
+_PHASE_PLAN_RESPONSE_SCHEMA = _object_schema(
+    {
+        "phase_length_weeks": {"type": "integer", "minimum": 1},
+        "weekly_goals": _string_list_schema(min_items=1),
+        "session_plan": _string_list_schema(min_items=1),
+        "strength_integration": _string_list_schema(),
+        "rationale_links": _string_list_schema(min_items=1),
+        "risks": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "phase_length_weeks",
+        "weekly_goals",
+        "session_plan",
+        "strength_integration",
+        "rationale_links",
+        "risks",
+        "missing_data",
+        "confidence",
+    ],
+)
+_CRITIQUE_RESPONSE_SCHEMA = _object_schema(
+    {
+        "decision": {"type": "string", "enum": ["accept", "revise"]},
+        "blocking_issues": _string_list_schema(),
+        "non_blocking_improvements": _string_list_schema(),
+        "required_adjustments": _string_list_schema(),
+        "missing_data": _string_list_schema(),
+        "confidence": _confidence_schema(),
+    },
+    [
+        "decision",
+        "blocking_issues",
+        "non_blocking_improvements",
+        "required_adjustments",
+        "missing_data",
+        "confidence",
+    ],
+)
+_STRUCTURED_STAGE_RESPONSE_SCHEMAS: dict[str, Mapping[str, Any]] = {
+    "lab_analysis_v1": _LAB_ANALYSIS_RESPONSE_SCHEMA,
+    "past_phase_review_v1": _PAST_PHASE_REVIEW_RESPONSE_SCHEMA,
+    "synthesis_v1": _SYNTHESIS_RESPONSE_SCHEMA,
+    "strength_recommendation_v1": _STRENGTH_RESPONSE_SCHEMA,
+    "macro_strategy_v1": _MACRO_STRATEGY_RESPONSE_SCHEMA,
+    "phase_plan_v1": _PHASE_PLAN_RESPONSE_SCHEMA,
+    "critique_v1": _CRITIQUE_RESPONSE_SCHEMA,
+}
+
+
 class LLMClient(Protocol):
     def generate(
         self,
@@ -629,8 +816,11 @@ def _run_structured_stage(
     prompt = _load_prompt(stage_name)
     system_instruction = prompt["instructions"]["system"]
     user_prompt = prompt["user_template"].format(**format_kwargs)
+    response_json_schema = _STRUCTURED_STAGE_RESPONSE_SCHEMAS[stage_name]
     raw_response = llm_client.generate(
-        user_prompt, system_instruction=system_instruction
+        user_prompt,
+        system_instruction=system_instruction,
+        response_json_schema=response_json_schema,
     )
 
     try:
@@ -644,7 +834,9 @@ def _run_structured_stage(
             f"Invalid JSON:\n{raw_response}"
         )
         repaired = llm_client.generate(
-            repair_prompt, system_instruction="Return valid JSON only."
+            repair_prompt,
+            system_instruction="Return valid JSON only.",
+            response_json_schema=response_json_schema,
         )
         try:
             payload = json.loads(repaired)
