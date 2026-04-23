@@ -41,14 +41,6 @@ def test_parse_training_review_report_rejects_invalid_evidence_format() -> None:
         parse_training_review_report(payload)
 
 
-def test_parse_training_review_report_rejects_extra_fields() -> None:
-    payload = _valid_payload()
-    payload["unexpected"] = "value"
-
-    with pytest.raises(ValueError, match="Unexpected report fields"):
-        parse_training_review_report(payload)
-
-
 def test_validate_training_review_report_returns_error_messages() -> None:
     payload = _valid_payload()
     payload["confidence"] = 2.1

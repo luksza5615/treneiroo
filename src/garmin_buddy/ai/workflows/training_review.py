@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime
+from functools import lru_cache
 import json
+from pathlib import Path
 from typing import Any, Protocol
+
+import yaml
 
 from garmin_buddy.ai.contracts.contracts import (
     TrainingReviewReport,
@@ -15,10 +19,13 @@ from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
 _DEFAULT_MAX_TOOL_CALLS = 2
 _PROMPT_VERSION = "training_review_v1"
+_PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review"
 
 
 class LLMClient(Protocol):
-    def generate(self, prompt: str) -> str: ...
+    def generate(
+        self, prompt: str, *, system_instruction: str | None = None
+    ) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -48,7 +55,10 @@ def run_training_review(
     model_name: str | None = None,
 ) -> TrainingReviewResult:
     current_stage = "get_training_summary"
+    prompt = ""
     raw_response = ""
+    prompt_config = _load_prompt(_PROMPT_VERSION)
+    system_instruction = prompt_config["instructions"]["system"]
 
     try:
         summary_result = tool_registry.call_tool(
@@ -113,7 +123,10 @@ def run_training_review(
             )
 
             current_stage = "generate_report"
-            raw_response = llm_client.generate(prompt)
+            raw_response = llm_client.generate(
+                prompt,
+                system_instruction=system_instruction,
+            )
 
             current_stage = "parse_or_repair"
             parse_ok, report = _parse_or_repair(
@@ -174,13 +187,13 @@ def _parse_or_repair(
     raw_response: str,
 ) -> tuple[bool, TrainingReviewReport]:
     try:
-        payload = json.loads(raw_response)
+        payload = _load_llm_json(raw_response)
         report = parse_training_review_report(payload)
         return True, report
     except (json.JSONDecodeError, ValueError) as exc:
         repaired = llm_client.generate(_build_repair_prompt(raw_response, exc))
         try:
-            payload = json.loads(repaired)
+            payload = _load_llm_json(repaired)
             report = parse_training_review_report(payload)
             return True, report
         except (json.JSONDecodeError, ValueError) as final_exc:
@@ -202,16 +215,20 @@ def _build_prompt(
     evidence_sessions: list[dict[str, Any]],
     missing_data: list[str],
 ) -> str:
-    return (
-        "Return only a JSON object that matches the TrainingReviewReport schema.\n"
-        "Do not include any extra keys or commentary.\n"
-        f"athlete_id: {athlete_id}\n"
-        f"start_date: {start_date.isoformat()}\n"
-        f"end_date: {end_date.isoformat()}\n"
-        f"training_summary: {json.dumps(training_summary, default=_json_default)}\n"
-        f"key_sessions: {json.dumps(key_sessions, default=_json_default)}\n"
-        f"evidence_sessions: {json.dumps(evidence_sessions, default=_json_default)}\n"
-        f"missing_data: {json.dumps(missing_data, default=_json_default)}\n"
+    prompt = _load_prompt(_PROMPT_VERSION)
+    notes: dict[str, Any] = {}
+    if evidence_sessions:
+        notes["evidence_sessions"] = evidence_sessions
+    if missing_data:
+        notes["missing_data"] = missing_data
+
+    return prompt["user_template"].format(
+        athlete_id=athlete_id,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        training_summary_json=_json(training_summary),
+        key_sessions_json=_json(key_sessions),
+        notes_json=_json(notes),
     )
 
 
@@ -222,6 +239,45 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"
     )
+
+
+def _load_llm_json(raw_response: str) -> Any:
+    text = raw_response.strip()
+    candidates = [text]
+
+    unfenced = _strip_markdown_code_fence(text)
+    if unfenced != text:
+        candidates.append(unfenced)
+
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+
+    if last_error is None:
+        raise json.JSONDecodeError("Expecting value", text, 0)
+    raise last_error
+
+
+def _strip_markdown_code_fence(text: str) -> str:
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return text
+
+    first_line = lines[0].strip()
+    last_line = lines[-1].strip()
+    if not last_line.startswith("```"):
+        return text
+
+    if first_line != "```" and not first_line.startswith("```json"):
+        return text
+
+    return "\n".join(lines[1:-1]).strip()
 
 
 def _maybe_fetch_evidence(
@@ -250,7 +306,7 @@ def _maybe_fetch_evidence(
     response = llm_client.generate(request_prompt)
 
     try:
-        payload = json.loads(response)
+        payload = _load_llm_json(response)
     except json.JSONDecodeError:
         missing_data.append("evidence_request_invalid_json")
         return []
@@ -304,6 +360,21 @@ def _sanitize_activity_ids(activity_ids: list[Any]) -> list[int]:
         cleaned.append(value)
 
     return cleaned
+
+
+@lru_cache(maxsize=8)
+def _load_prompt(version: str) -> dict[str, Any]:
+    path = _PROMPT_DIR / f"{version}.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=_json_default,
+    )
 
 
 def _json_default(value: object) -> str:

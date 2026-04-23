@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from garmin_buddy.ai.contracts.contracts.contracts import parse_training_review_report
+from garmin_buddy.ai.contracts.contracts import parse_training_review_report
 
 
 @dataclass(frozen=True)

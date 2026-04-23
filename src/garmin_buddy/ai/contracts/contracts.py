@@ -13,7 +13,6 @@ _REQUIRED_FIELDS = {
     "priorities_next_7_days",
     "evidence",
     "confidence",
-    "missing_data",
 }
 
 
@@ -40,7 +39,7 @@ class TrainingReviewReport:
 
 
 def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewReport:
-    _validate_required_and_extra_fields(payload)
+    _validate_required_fields(payload)
 
     headline = _validate_non_empty_string("headline", payload["headline"])
     positives = _validate_string_list("positives", payload["positives"], 1, 5)
@@ -97,15 +96,12 @@ def build_fallback_training_review_report(
     )
 
 
-def _validate_required_and_extra_fields(payload: Mapping[str, Any]) -> None:
+def _validate_required_fields(payload: Mapping[str, Any]) -> None:
     payload_fields = set(payload.keys())
     missing_fields = sorted(_REQUIRED_FIELDS - payload_fields)
-    extra_fields = sorted(payload_fields - _REQUIRED_FIELDS)
 
     if missing_fields:
         raise ValueError(f"Missing required report fields: {', '.join(missing_fields)}")
-    if extra_fields:
-        raise ValueError(f"Unexpected report fields: {', '.join(extra_fields)}")
 
 
 def _validate_non_empty_string(field_name: str, value: Any) -> str:
