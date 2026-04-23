@@ -41,7 +41,11 @@ T = TypeVar("T")
 
 class LLMClient(Protocol):
     def generate(
-        self, prompt: str, *, system_instruction: str | None = None
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
     ) -> str: ...
 
 

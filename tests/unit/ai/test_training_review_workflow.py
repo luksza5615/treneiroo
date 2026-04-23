@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import json
 from pathlib import Path
+from typing import Any, Mapping
 
 import pandas as pd
 import pytest
@@ -39,15 +40,20 @@ class _DummyRepository:
 class _FakeLLM:
     def __init__(self, responses: list[str]) -> None:
         self._responses = responses
-        self.calls: list[dict[str, str | None]] = []
+        self.calls: list[dict[str, Any]] = []
 
     def generate(
-        self, prompt: str, *, system_instruction: str | None = None
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
     ) -> str:
         self.calls.append(
             {
                 "prompt": prompt,
                 "system_instruction": system_instruction,
+                "response_json_schema": response_json_schema,
             }
         )
         return self._responses.pop(0)
@@ -88,7 +94,9 @@ def test_run_training_review_happy_path() -> None:
     assert isinstance(result.report, TrainingReviewReport)
     assert result.report.confidence == 0.6
     assert result.run_id is not None
+    assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
     assert llm.calls[1]["system_instruction"] is not None
+    assert "headline" in llm.calls[1]["response_json_schema"]["required"]
     assert "Produce only one JSON object." in llm.calls[1]["system_instruction"]
     assert "Generate a TrainingReviewReport for:" in llm.calls[1]["prompt"]
     assert "Training summary:" in llm.calls[1]["prompt"]
@@ -111,10 +119,14 @@ def test_run_training_review_repairs_invalid_json() -> None:
 
     assert result.parse_ok is True
     assert len(llm.calls) == 3
+    assert llm.calls[2]["system_instruction"] == "Return valid JSON only."
+    assert "headline" in llm.calls[2]["response_json_schema"]["required"]
 
 
-def test_run_training_review_accepts_fenced_json_response() -> None:
-    llm = _FakeLLM(['{"activity_ids":[123]}', f"```json\n{_valid_report_json()}\n```"])
+def test_run_training_review_repairs_fenced_json_response() -> None:
+    llm = _FakeLLM(
+        ['{"activity_ids":[123]}', f"```json\n{_valid_report_json()}\n```", _valid_report_json()]
+    )
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
@@ -129,7 +141,8 @@ def test_run_training_review_accepts_fenced_json_response() -> None:
 
     assert result.parse_ok is True
     assert result.report.confidence == 0.6
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
+    assert "Fix the following JSON" in llm.calls[2]["prompt"]
 
 
 def test_run_training_review_returns_fallback_when_repair_fails() -> None:
@@ -150,7 +163,7 @@ def test_run_training_review_returns_fallback_when_repair_fails() -> None:
     assert result.report.confidence == 0.0
 
 
-def test_maybe_fetch_evidence_accepts_fenced_json_response() -> None:
+def test_maybe_fetch_evidence_rejects_fenced_json_response() -> None:
     llm = _FakeLLM(['```json\n{"activity_ids":[123]}\n```'])
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     missing_data: list[str] = []
@@ -172,7 +185,8 @@ def test_maybe_fetch_evidence_accepts_fenced_json_response() -> None:
     )
 
     assert evidence == []
-    assert missing_data == []
+    assert missing_data == ["evidence_request_invalid_json"]
+    assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
 
 
 def test_run_training_review_persists_failed_runs_when_llm_errors() -> None:
@@ -208,7 +222,11 @@ class _RaisingLLM:
         self.message = message
 
     def generate(
-        self, prompt: str, *, system_instruction: str | None = None
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
     ) -> str:
         raise RuntimeError(self.message)
 

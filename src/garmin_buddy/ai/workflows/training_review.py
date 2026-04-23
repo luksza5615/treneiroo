@@ -5,7 +5,7 @@ from datetime import date, datetime
 from functools import lru_cache
 import json
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 import yaml
 
@@ -20,11 +20,85 @@ from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 _DEFAULT_MAX_TOOL_CALLS = 2
 _PROMPT_VERSION = "training_review_v1"
 _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review"
+_TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "positives": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "maxItems": 5,
+        },
+        "risks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "maxItems": 5,
+        },
+        "priorities_next_7_days": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 3,
+            "maxItems": 7,
+        },
+        "evidence": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 0,
+            "maxItems": 10,
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "missing_data": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 0,
+            "maxItems": 100,
+        },
+    },
+    "required": [
+        "headline",
+        "positives",
+        "risks",
+        "priorities_next_7_days",
+        "evidence",
+        "confidence",
+        "missing_data",
+    ],
+    "additionalProperties": False,
+    "propertyOrdering": [
+        "headline",
+        "positives",
+        "risks",
+        "priorities_next_7_days",
+        "evidence",
+        "confidence",
+        "missing_data",
+    ],
+}
+_EVIDENCE_REQUEST_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "activity_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "minItems": 0,
+            "maxItems": 2,
+        },
+    },
+    "required": ["activity_ids"],
+    "additionalProperties": False,
+    "propertyOrdering": ["activity_ids"],
+}
 
 
 class LLMClient(Protocol):
     def generate(
-        self, prompt: str, *, system_instruction: str | None = None
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        response_json_schema: Mapping[str, Any] | None = None,
     ) -> str: ...
 
 
@@ -126,6 +200,7 @@ def run_training_review(
             raw_response = llm_client.generate(
                 prompt,
                 system_instruction=system_instruction,
+                response_json_schema=_TRAINING_REVIEW_RESPONSE_SCHEMA,
             )
 
             current_stage = "parse_or_repair"
@@ -187,13 +262,17 @@ def _parse_or_repair(
     raw_response: str,
 ) -> tuple[bool, TrainingReviewReport]:
     try:
-        payload = _load_llm_json(raw_response)
+        payload = json.loads(raw_response)
         report = parse_training_review_report(payload)
         return True, report
     except (json.JSONDecodeError, ValueError) as exc:
-        repaired = llm_client.generate(_build_repair_prompt(raw_response, exc))
+        repaired = llm_client.generate(
+            _build_repair_prompt(raw_response, exc),
+            system_instruction="Return valid JSON only.",
+            response_json_schema=_TRAINING_REVIEW_RESPONSE_SCHEMA,
+        )
         try:
-            payload = _load_llm_json(repaired)
+            payload = json.loads(repaired)
             report = parse_training_review_report(payload)
             return True, report
         except (json.JSONDecodeError, ValueError) as final_exc:
@@ -241,45 +320,6 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     )
 
 
-def _load_llm_json(raw_response: str) -> Any:
-    text = raw_response.strip()
-    candidates = [text]
-
-    unfenced = _strip_markdown_code_fence(text)
-    if unfenced != text:
-        candidates.append(unfenced)
-
-    last_error: json.JSONDecodeError | None = None
-    for candidate in candidates:
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError as exc:
-            last_error = exc
-
-    if last_error is None:
-        raise json.JSONDecodeError("Expecting value", text, 0)
-    raise last_error
-
-
-def _strip_markdown_code_fence(text: str) -> str:
-    if not text.startswith("```"):
-        return text
-
-    lines = text.splitlines()
-    if len(lines) < 2:
-        return text
-
-    first_line = lines[0].strip()
-    last_line = lines[-1].strip()
-    if not last_line.startswith("```"):
-        return text
-
-    if first_line != "```" and not first_line.startswith("```json"):
-        return text
-
-    return "\n".join(lines[1:-1]).strip()
-
-
 def _maybe_fetch_evidence(
     *,
     llm_client: LLMClient,
@@ -303,10 +343,13 @@ def _maybe_fetch_evidence(
         athlete_id=athlete_id,
         key_sessions=key_sessions,
     )
-    response = llm_client.generate(request_prompt)
+    response = llm_client.generate(
+        request_prompt,
+        response_json_schema=_EVIDENCE_REQUEST_RESPONSE_SCHEMA,
+    )
 
     try:
-        payload = _load_llm_json(response)
+        payload = json.loads(response)
     except json.JSONDecodeError:
         missing_data.append("evidence_request_invalid_json")
         return []
