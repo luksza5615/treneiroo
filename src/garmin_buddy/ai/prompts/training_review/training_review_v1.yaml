@@ -30,8 +30,7 @@ instructions:
     - Evidence must reference concrete date and activity id when available.
     - Do not provide medical diagnosis or treatment advice.
 user_template: |
-  Generate a TrainingReviewReport for:
-  - athlete_id: {athlete_id}
+  Generate a training review for the period:
   - start_date: {start_date}
   - end_date: {end_date}
 

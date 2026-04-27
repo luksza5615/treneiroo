@@ -13,13 +13,19 @@ def test_run_store_redacts_sensitive_fields(tmp_path: Path) -> None:
             "api_key": "secret",
             "nested": {"password": "hidden"},
             "tool_calls": [],
+            "total_input_tokens": 123,
+            "total_output_tokens": 45,
         }
     )
+
+    saved_line = json.loads((tmp_path / "training_review_runs.jsonl").read_text())
 
     assert artifact.run_id
     assert artifact.payload["api_key"] == "***redacted***"
     assert artifact.payload["nested"]["password"] == "***redacted***"
     assert (tmp_path / "training_review_runs.jsonl").exists()
+    assert saved_line["total_input_tokens"] == 123
+    assert saved_line["total_output_tokens"] == 45
 
 
 def test_format_dates_recursively_converts_nested_datetimes() -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -35,8 +36,13 @@ class _DummyRepository:
 
 
 class _FakeLLM:
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(
+        self,
+        responses: list[str | Exception],
+        usages: list[tuple[int, int, int] | None] | None = None,
+    ) -> None:
         self.responses = responses
+        self.usages = list(usages or [])
         self.calls: list[dict[str, Any]] = []
 
     def generate(
@@ -45,7 +51,11 @@ class _FakeLLM:
         *,
         system_instruction: str | None = None,
         response_json_schema: Mapping[str, Any] | None = None,
+        usage_tracker=None,
     ) -> str:
+        usage = self.usages.pop(0) if self.usages else None
+        if usage_tracker is not None and usage is not None:
+            usage_tracker.add_usage(_usage_metadata(*usage))
         self.calls.append(
             {
                 "prompt": prompt,
@@ -53,7 +63,10 @@ class _FakeLLM:
                 "response_json_schema": response_json_schema,
             }
         )
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def _profile_payload(profile_context: str = "Goal: Sub-40 10k") -> dict[str, object]:
@@ -90,9 +103,11 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
             '{"summary":"Synthesis","key_constraints":["Ferritin trend"],"key_opportunities":["Strong consistency"],"planning_priorities":["Stable volume"],"risk_controls":["Watch fatigue"],"assumptions":["No acute injury"],"missing_data":[],"confidence":0.75}',
             '{"objectives":["Durability"],"weekly_frequency":"2x/week","session_focuses":["Single-leg strength"],"integration_notes":["After easy days"],"contraindications":["Reduce on fatigue"],"missing_data":[],"confidence":0.7}',
             '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
-        ]
+        ],
+        usages=[(10, 0, 5), (11, 0, 6), (12, 0, 7), (13, 0, 8), (14, 0, 9)],
     )
-    store = PreparationRunStore(_workspace_temp_dir("prep-workflow"))
+    temp_dir = _workspace_temp_dir("prep-workflow")
+    store = PreparationRunStore(temp_dir)
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -133,6 +148,13 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
         "missing_data",
         "confidence",
     ]
+    saved_line = json.loads(
+        (temp_dir / "training_plan_preparation_runs.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    assert saved_line["total_input_tokens"] == 60
+    assert saved_line["total_output_tokens"] == 35
 
 
 def test_run_training_plan_preparation_repair_uses_structured_output_schema() -> None:
@@ -144,9 +166,11 @@ def test_run_training_plan_preparation_repair_uses_structured_output_schema() ->
             '{"summary":"Synthesis","key_constraints":["Ferritin trend"],"key_opportunities":["Strong consistency"],"planning_priorities":["Stable volume"],"risk_controls":["Watch fatigue"],"assumptions":["No acute injury"],"missing_data":[],"confidence":0.75}',
             '{"objectives":["Durability"],"weekly_frequency":"2x/week","session_focuses":["Single-leg strength"],"integration_notes":["After easy days"],"contraindications":["Reduce on fatigue"],"missing_data":[],"confidence":0.7}',
             '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
-        ]
+        ],
+        usages=[(9, 0, 3), (8, 0, 4), (10, 0, 5), (11, 0, 6), (12, 0, 7), (13, 0, 8)],
     )
-    store = PreparationRunStore(_workspace_temp_dir("prep-repair"))
+    temp_dir = _workspace_temp_dir("prep-repair")
+    store = PreparationRunStore(temp_dir)
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -171,6 +195,13 @@ def test_run_training_plan_preparation_repair_uses_structured_output_schema() ->
     assert llm.calls[1]["response_json_schema"] == llm.calls[0][
         "response_json_schema"
     ]
+    saved_line = json.loads(
+        (temp_dir / "training_plan_preparation_runs.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    assert saved_line["total_input_tokens"] == 63
+    assert saved_line["total_output_tokens"] == 33
 
 
 def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
@@ -261,7 +292,8 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
         [
             '{"phase_length_weeks":4,"weekly_goals":["Rebuild rhythm"],"session_plan":["Easy run","Workout"],"strength_integration":["One short session"],"rationale_links":["Matches strategy"],"risks":["Fatigue"],"missing_data":[],"confidence":0.72}',
             '{"decision":"accept","blocking_issues":[],"non_blocking_improvements":["Monitor fatigue"],"required_adjustments":[],"missing_data":[],"confidence":0.8}',
-        ]
+        ],
+        usages=[(15, 0, 9), (16, 0, 10)],
     )
     phase_registry = PreparationToolRegistry(
         repository=_DummyRepository(),
@@ -291,6 +323,16 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
     assert phase_llm.calls[1]["response_json_schema"]["properties"]["decision"][
         "enum"
     ] == ["accept", "revise"]
+    saved_lines = (
+        (store._base_dir / "training_plan_preparation_runs.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()
+    )
+    saved_line = json.loads(saved_lines[-1])
+    assert saved_line["stage"] == "phase_generation"
+    assert saved_line["total_input_tokens"] == 31
+    assert saved_line["total_output_tokens"] == 19
 
 
 def test_run_training_plan_preparation_serializes_date_context_values() -> None:
@@ -331,7 +373,13 @@ def test_run_training_plan_preparation_serializes_date_context_values() -> None:
 
 
 def test_run_training_plan_preparation_persists_failed_runs() -> None:
-    llm = _FailingLLM("503 Service Unavailable")
+    llm = _FakeLLM(
+        [
+            '{"summary":"Lab ok","findings":["Ferritin is low-normal"],"training_implications":["Use conservative intensity"],"risk_flags":["ferritin_watch"],"missing_data":[],"confidence":0.7}',
+            RuntimeError("503 Service Unavailable"),
+        ],
+        usages=[(12, 0, 6)],
+    )
     temp_dir = _workspace_temp_dir("prep-workflow-failure")
     store = PreparationRunStore(temp_dir)
     registry = PreparationToolRegistry(
@@ -360,8 +408,10 @@ def test_run_training_plan_preparation_persists_failed_runs() -> None:
     )
     assert saved_line["run_status"] == "failed"
     assert saved_line["stage"] == "strategy_generation"
-    assert saved_line["failed_stage"] == "lab_analysis"
+    assert saved_line["failed_stage"] == "past_phase_review"
     assert saved_line["error"]["type"] == "RuntimeError"
+    assert saved_line["total_input_tokens"] == 12
+    assert saved_line["total_output_tokens"] == 6
 
 
 def _workspace_temp_dir(name: str) -> Path:
@@ -370,15 +420,13 @@ def _workspace_temp_dir(name: str) -> Path:
     return path
 
 
-class _FailingLLM:
-    def __init__(self, message: str) -> None:
-        self.message = message
-
-    def generate(
-        self,
-        prompt: str,
-        *,
-        system_instruction: str | None = None,
-        response_json_schema: Mapping[str, Any] | None = None,
-    ) -> str:
-        raise RuntimeError(self.message)
+def _usage_metadata(
+    prompt_tokens: int,
+    tool_use_prompt_tokens: int,
+    candidate_tokens: int,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        prompt_token_count=prompt_tokens,
+        tool_use_prompt_token_count=tool_use_prompt_tokens,
+        candidates_token_count=candidate_tokens,
+    )

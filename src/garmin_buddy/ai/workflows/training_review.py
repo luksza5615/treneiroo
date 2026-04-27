@@ -14,6 +14,7 @@ from garmin_buddy.ai.contracts.contracts import (
     build_fallback_training_review_report,
     parse_training_review_report,
 )
+from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
 from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
@@ -99,6 +100,7 @@ class LLMClient(Protocol):
         *,
         system_instruction: str | None = None,
         response_json_schema: Mapping[str, Any] | None = None,
+        usage_tracker: TokenUsageTotals | None = None,
     ) -> str: ...
 
 
@@ -131,6 +133,7 @@ def run_training_review(
     current_stage = "get_training_summary"
     prompt = ""
     raw_response = ""
+    token_usage = TokenUsageTotals()
     prompt_config = _load_prompt(_PROMPT_VERSION)
     system_instruction = prompt_config["instructions"]["system"]
 
@@ -184,6 +187,7 @@ def run_training_review(
                 athlete_id=inputs.athlete_id,
                 key_sessions=key_sessions_payload,
                 missing_data=missing_data,
+                usage_tracker=token_usage,
             )
 
             prompt = _build_prompt(
@@ -201,6 +205,7 @@ def run_training_review(
                 prompt,
                 system_instruction=system_instruction,
                 response_json_schema=_TRAINING_REVIEW_RESPONSE_SCHEMA,
+                usage_tracker=token_usage,
             )
 
             current_stage = "parse_or_repair"
@@ -209,6 +214,7 @@ def run_training_review(
                 start_date=inputs.start_date,
                 end_date=inputs.end_date,
                 raw_response=raw_response,
+                usage_tracker=token_usage,
             )
 
             result = TrainingReviewResult(
@@ -230,6 +236,7 @@ def run_training_review(
                     retry_count=0,
                     failed_stage=current_stage,
                     parsed_output=None,
+                    token_usage=token_usage,
                 ),
                 exc,
             )
@@ -249,6 +256,7 @@ def run_training_review(
             retry_count=result.retry_count,
             failed_stage=None,
             parsed_output=result.report.to_dict(),
+            token_usage=token_usage,
         )
     )
     return replace(result, run_id=artifact.run_id)
@@ -260,6 +268,7 @@ def _parse_or_repair(
     start_date: date,
     end_date: date,
     raw_response: str,
+    usage_tracker: TokenUsageTotals,
 ) -> tuple[bool, TrainingReviewReport]:
     try:
         payload = json.loads(raw_response)
@@ -270,6 +279,7 @@ def _parse_or_repair(
             _build_repair_prompt(raw_response, exc),
             system_instruction="Return valid JSON only.",
             response_json_schema=_TRAINING_REVIEW_RESPONSE_SCHEMA,
+            usage_tracker=usage_tracker,
         )
         try:
             payload = json.loads(repaired)
@@ -329,6 +339,7 @@ def _maybe_fetch_evidence(
     athlete_id: int | None,
     key_sessions: list[dict[str, Any]],
     missing_data: list[str],
+    usage_tracker: TokenUsageTotals,
 ) -> list[dict[str, Any]]:
     if not key_sessions:
         return []
@@ -346,6 +357,7 @@ def _maybe_fetch_evidence(
     response = llm_client.generate(
         request_prompt,
         response_json_schema=_EVIDENCE_REQUEST_RESPONSE_SCHEMA,
+        usage_tracker=usage_tracker,
     )
 
     try:
@@ -438,6 +450,7 @@ def _build_run_payload(
     retry_count: int,
     failed_stage: str | None,
     parsed_output: dict[str, Any] | None,
+    token_usage: TokenUsageTotals,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "workflow": "training_review",
@@ -456,6 +469,8 @@ def _build_run_payload(
         "raw_response": raw_response,
         "parse_ok": parse_ok,
         "retry_count": retry_count,
+        "total_input_tokens": token_usage.total_input_tokens,
+        "total_output_tokens": token_usage.total_output_tokens,
     }
     if parsed_output is not None:
         payload["parsed_output"] = parsed_output

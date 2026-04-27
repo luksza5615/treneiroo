@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import yaml
 
+from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
 from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
 from garmin_buddy.ai.contracts.preparation_contracts import (
     CritiqueArtifact,
@@ -233,6 +234,7 @@ class LLMClient(Protocol):
         *,
         system_instruction: str | None = None,
         response_json_schema: Mapping[str, Any] | None = None,
+        usage_tracker: TokenUsageTotals | None = None,
     ) -> str: ...
 
 
@@ -256,6 +258,7 @@ def run_training_plan_preparation(
     current_stage = "collect_context"
     context: NormalizedPreparationContext | None = None
     strategy_id: str | None = None
+    token_usage = TokenUsageTotals()
 
     try:
         context, context_debug = _collect_context(
@@ -266,6 +269,7 @@ def run_training_plan_preparation(
             llm_client=llm_client,
             run_store=run_store,
             context=context,
+            usage_tracker=token_usage,
         )
         current_stage = "past_phase_review"
         past_phase_review, phase_parse_ok, phase_retries = _run_structured_stage(
@@ -274,6 +278,7 @@ def run_training_plan_preparation(
             format_kwargs=context_debug,
             parser=PastPhaseReviewArtifact.from_payload,
             fallback_builder=build_fallback_past_phase_review,
+            usage_tracker=token_usage,
         )
         current_stage = "synthesis"
         synthesis, synthesis_parse_ok, synthesis_retries = _run_structured_stage(
@@ -286,6 +291,7 @@ def run_training_plan_preparation(
             },
             parser=PreparationSynthesisArtifact.from_payload,
             fallback_builder=build_fallback_synthesis,
+            usage_tracker=token_usage,
         )
         current_stage = "strength_recommendation"
         strength_plan, strength_parse_ok, strength_retries = _run_structured_stage(
@@ -297,6 +303,7 @@ def run_training_plan_preparation(
             },
             parser=StrengthPlanArtifact.from_payload,
             fallback_builder=build_fallback_strength_plan,
+            usage_tracker=token_usage,
         )
 
         strategy_id = str(uuid4())
@@ -309,6 +316,7 @@ def run_training_plan_preparation(
             synthesis=synthesis,
             strength_plan=strength_plan,
             planning_horizon_months=inputs.planning_horizon_months,
+            usage_tracker=token_usage,
         )
 
         current_stage = "save_strategy_state"
@@ -368,6 +376,8 @@ def run_training_plan_preparation(
                 "tool_calls": tool_registry.get_call_log(),
                 "parse_ok": parse_ok,
                 "retry_count": retry_count,
+                "total_input_tokens": token_usage.total_input_tokens,
+                "total_output_tokens": token_usage.total_output_tokens,
                 "result": result.to_dict(),
             }
         )
@@ -381,6 +391,7 @@ def run_training_plan_preparation(
                 tool_registry=tool_registry,
                 context=context,
                 strategy_id=strategy_id,
+                token_usage=token_usage,
             ),
             exc,
         )
@@ -413,6 +424,7 @@ def generate_phase_plan_from_strategy(
     """Resume from an approved strategy so detailed planning never bypasses review."""
     current_stage = "load_strategy_state"
     current_context: NormalizedPreparationContext | None = None
+    token_usage = TokenUsageTotals()
 
     try:
         state = run_store.load_strategy_state(strategy_id)
@@ -477,6 +489,7 @@ def generate_phase_plan_from_strategy(
             strength_plan=strength_plan,
             first_phase_weeks=inputs.first_phase_weeks,
             revision_adjustments=[],
+            usage_tracker=token_usage,
         )
         current_stage = "critique"
         critique, critique_parse_ok, critique_retries = _run_structured_stage(
@@ -489,6 +502,7 @@ def generate_phase_plan_from_strategy(
             },
             parser=CritiqueArtifact.from_payload,
             fallback_builder=build_fallback_critique,
+            usage_tracker=token_usage,
         )
 
         if critique.decision == "revise" and critique.required_adjustments:
@@ -500,6 +514,7 @@ def generate_phase_plan_from_strategy(
                 strength_plan=strength_plan,
                 first_phase_weeks=inputs.first_phase_weeks,
                 revision_adjustments=critique.required_adjustments,
+                usage_tracker=token_usage,
             )
             phase_parse_ok = phase_parse_ok and revised_parse_ok
             phase_retries += revised_retries
@@ -515,6 +530,7 @@ def generate_phase_plan_from_strategy(
                     },
                     parser=CritiqueArtifact.from_payload,
                     fallback_builder=build_fallback_critique,
+                    usage_tracker=token_usage,
                 )
             )
             critique_retries += second_critique_retries
@@ -550,6 +566,8 @@ def generate_phase_plan_from_strategy(
                 "tool_calls": tool_registry.get_call_log(),
                 "parse_ok": parse_ok,
                 "retry_count": retry_count,
+                "total_input_tokens": token_usage.total_input_tokens,
+                "total_output_tokens": token_usage.total_output_tokens,
                 "result": result.to_dict(),
             }
         )
@@ -563,6 +581,7 @@ def generate_phase_plan_from_strategy(
                 tool_registry=tool_registry,
                 context=current_context,
                 strategy_id=strategy_id,
+                token_usage=token_usage,
             ),
             exc,
         )
@@ -724,6 +743,7 @@ def _resolve_lab_analysis(
     llm_client: LLMClient,
     run_store: PreparationRunStore,
     context: NormalizedPreparationContext,
+    usage_tracker: TokenUsageTotals,
 ) -> tuple[LabAnalysisArtifact, bool, int]:
     cached_payload = run_store.find_lab_analysis(context.lab_fingerprint)
     if cached_payload is not None:
@@ -737,6 +757,7 @@ def _resolve_lab_analysis(
         },
         parser=LabAnalysisArtifact.from_payload,
         fallback_builder=build_fallback_lab_analysis,
+        usage_tracker=usage_tracker,
     )
 
 
@@ -749,6 +770,7 @@ def _run_strategy_stage(
     synthesis: PreparationSynthesisArtifact,
     strength_plan: StrengthPlanArtifact,
     planning_horizon_months: int,
+    usage_tracker: TokenUsageTotals,
 ) -> tuple[MacroStrategyArtifact, bool, int]:
     stage_result, parse_ok, retry_count = _run_structured_stage(
         stage_name="macro_strategy_v1",
@@ -772,6 +794,7 @@ def _run_strategy_stage(
             input_hash=input_hash,
             error_reason=error_reason,
         ),
+        usage_tracker=usage_tracker,
     )
     return stage_result, parse_ok, retry_count
 
@@ -784,6 +807,7 @@ def _run_phase_plan_stage(
     strength_plan: StrengthPlanArtifact,
     first_phase_weeks: int,
     revision_adjustments: list[str],
+    usage_tracker: TokenUsageTotals,
 ) -> tuple[PhasePlanArtifact, bool, int]:
     return _run_structured_stage(
         stage_name="phase_plan_v1",
@@ -800,6 +824,7 @@ def _run_phase_plan_stage(
             weeks=first_phase_weeks,
             error_reason=error_reason,
         ),
+        usage_tracker=usage_tracker,
     )
 
 
@@ -810,6 +835,7 @@ def _run_structured_stage(
     format_kwargs: dict[str, Any],
     parser: Callable[[Mapping[str, Any]], T],
     fallback_builder: Callable[[str | None], T],
+    usage_tracker: TokenUsageTotals,
 ) -> tuple[T, bool, int]:
     """One repair attempt is enough to recover formatting without hiding unstable prompts."""
 
@@ -821,6 +847,7 @@ def _run_structured_stage(
         user_prompt,
         system_instruction=system_instruction,
         response_json_schema=response_json_schema,
+        usage_tracker=usage_tracker,
     )
 
     try:
@@ -837,6 +864,7 @@ def _run_structured_stage(
             repair_prompt,
             system_instruction="Return valid JSON only.",
             response_json_schema=response_json_schema,
+            usage_tracker=usage_tracker,
         )
         try:
             payload = json.loads(repaired)
@@ -888,6 +916,7 @@ def _build_preparation_failure_payload(
     tool_registry: PreparationToolRegistry,
     context: NormalizedPreparationContext | None,
     strategy_id: str | None,
+    token_usage: TokenUsageTotals,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "workflow": "training_plan_preparation",
@@ -901,6 +930,8 @@ def _build_preparation_failure_payload(
             "planning_horizon_months": inputs.planning_horizon_months,
             "first_phase_weeks": inputs.first_phase_weeks,
         },
+        "total_input_tokens": token_usage.total_input_tokens,
+        "total_output_tokens": token_usage.total_output_tokens,
     }
     if context is not None:
         payload["input_hash"] = context.input_hash
