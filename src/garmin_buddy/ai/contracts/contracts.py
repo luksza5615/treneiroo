@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-import re
 from typing import Any, Mapping
 
-_EVIDENCE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\s+activity:[^\s]+\s+.+$")
 _REQUIRED_FIELDS = {
     "summary",
     "positives",
@@ -151,14 +149,7 @@ def _validate_string_list(
 
 
 def _validate_evidence(value: Any) -> list[str]:
-    evidence = _validate_string_list("evidence", value, 0, 10)
-    for evidence_item in evidence:
-        if _EVIDENCE_PATTERN.match(evidence_item) is None:
-            raise ValueError(
-                "evidence items must match 'YYYY-MM-DD activity:<id> <label>'"
-            )
-
-    return evidence
+    return _validate_string_list("evidence", value, 0, 10)
 
 
 def _validate_confidence(value: Any) -> float:

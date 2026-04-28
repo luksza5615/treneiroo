@@ -9,6 +9,7 @@ from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.rendering.report_renderer import render_report_md
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 from garmin_buddy.ai.workflows.training_review import (
+    TRAINING_REVIEW_MAX_TOOL_CALLS,
     TrainingReviewInputs,
     run_training_review,
 )
@@ -31,8 +32,6 @@ def main() -> int:
     parser.add_argument("--start-date", required=True, type=_parse_date)
     parser.add_argument("--end-date", required=True, type=_parse_date)
     parser.add_argument("--athlete-id", type=int, default=None)
-    parser.add_argument("--include-key-sessions", action="store_true")
-    parser.add_argument("--max-tool-calls", type=int, default=2)
     parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
     args = parser.parse_args()
 
@@ -42,13 +41,14 @@ def main() -> int:
     llm = LLMService(cfg.llm_api_key)
     run_store = RunStore(args.runs_dir)
 
-    tool_registry = ToolRegistry(repo, max_tool_calls=args.max_tool_calls)
+    tool_registry = ToolRegistry(
+        repo,
+        max_tool_calls=TRAINING_REVIEW_MAX_TOOL_CALLS,
+    )
     inputs = TrainingReviewInputs(
         start_date=args.start_date,
         end_date=args.end_date,
         athlete_id=args.athlete_id,
-        include_key_sessions=args.include_key_sessions,
-        max_tool_calls=args.max_tool_calls,
     )
     result = run_training_review(
         llm_client=llm,

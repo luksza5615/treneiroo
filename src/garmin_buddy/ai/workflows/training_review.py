@@ -18,7 +18,7 @@ from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
 from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
-_DEFAULT_MAX_TOOL_CALLS = 2
+TRAINING_REVIEW_MAX_TOOL_CALLS = 2
 TRAINING_REVIEW_PROMPT_VERSION = "training_review_v2"
 _PROMPT_VERSION = TRAINING_REVIEW_PROMPT_VERSION
 _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review"
@@ -110,8 +110,6 @@ class TrainingReviewInputs:
     start_date: date
     end_date: date
     athlete_id: int | None = None
-    include_key_sessions: bool = True
-    max_tool_calls: int = _DEFAULT_MAX_TOOL_CALLS
 
 
 @dataclass(frozen=True)
@@ -163,21 +161,20 @@ def run_training_review(
             key_sessions_payload: list[dict[str, Any]] = []
             evidence_sessions: list[dict[str, Any]] = []
             missing_data: list[str] = []
-            if inputs.include_key_sessions:
-                current_stage = "list_key_sessions"
-                key_sessions_result = tool_registry.call_tool(
-                    "list_key_sessions",
-                    {
-                        "start_date": inputs.start_date,
-                        "end_date": inputs.end_date,
-                        "athlete_id": inputs.athlete_id,
-                        "n": 5,
-                    },
-                )
-                if key_sessions_result.ok:
-                    key_sessions_payload = key_sessions_result.payload
-                else:
-                    missing_data.append("key_sessions_unavailable")
+            current_stage = "list_key_sessions"
+            key_sessions_result = tool_registry.call_tool(
+                "list_key_sessions",
+                {
+                    "start_date": inputs.start_date,
+                    "end_date": inputs.end_date,
+                    "athlete_id": inputs.athlete_id,
+                    "n": 5,
+                },
+            )
+            if key_sessions_result.ok:
+                key_sessions_payload = key_sessions_result.payload
+            else:
+                missing_data.append("key_sessions_unavailable")
 
             current_stage = "fetch_evidence"
             evidence_sessions = _maybe_fetch_evidence(
@@ -348,7 +345,6 @@ def _maybe_fetch_evidence(
         return []
 
     if tool_registry.remaining_budget() <= 0:
-        missing_data.append("evidence_tool_budget_exhausted")
         return []
 
     request_prompt = _build_evidence_request_prompt(
@@ -464,8 +460,8 @@ def _build_run_payload(
             "start_date": inputs.start_date,
             "end_date": inputs.end_date,
             "athlete_id": inputs.athlete_id,
-            "include_key_sessions": inputs.include_key_sessions,
-            "max_tool_calls": inputs.max_tool_calls,
+            "key_sessions_included": True,
+            "tool_budget": tool_registry.max_tool_calls,
         },
         "tool_calls": tool_registry.get_call_log(),
         "prompt": prompt,

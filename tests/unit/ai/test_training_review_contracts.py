@@ -32,12 +32,16 @@ def test_parse_training_review_report_accepts_valid_payload() -> None:
     assert report.evidence[0].startswith("2026-01-31 activity:123456")
 
 
-def test_parse_training_review_report_rejects_invalid_evidence_format() -> None:
+def test_parse_training_review_report_accepts_grounded_freeform_evidence() -> None:
     payload = _valid_payload()
-    payload["evidence"] = ["activity:123456 missing date prefix"]
+    payload["evidence"] = [
+        "Key session: 2026-04-12 ATE 5.0, ANE 1.0, Avg HR 172",
+        "Training summary: 234.3 km and 5231m ascent",
+    ]
 
-    with pytest.raises(ValueError, match="evidence items must match"):
-        parse_training_review_report(payload)
+    report = parse_training_review_report(payload)
+
+    assert report.evidence == payload["evidence"]
 
 
 def test_parse_training_review_report_rejects_extra_fields() -> None:

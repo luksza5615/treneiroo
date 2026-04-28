@@ -126,6 +126,26 @@ def test_run_training_review_happy_path() -> None:
     assert saved_line["total_output_tokens"] == 19
 
 
+def test_run_training_review_uses_fixed_budget_without_budget_missing_data() -> None:
+    llm = _FakeLLM([_valid_report_json()])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+    inputs = TrainingReviewInputs(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 7),
+    )
+
+    result = run_training_review(
+        llm_client=llm,
+        tool_registry=registry,
+        inputs=inputs,
+    )
+
+    assert result.parse_ok is True
+    assert len(llm.calls) == 1
+    assert "Key sessions:" in llm.calls[0]["prompt"]
+    assert "evidence_tool_budget_exhausted" not in llm.calls[0]["prompt"]
+
+
 def test_run_training_review_repairs_invalid_json() -> None:
     llm = _FakeLLM(
         ['{"activity_ids":[123]}', "{invalid json", _valid_report_json()],

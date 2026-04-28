@@ -24,6 +24,7 @@ from garmin_buddy.ai.workflows.training_plan_preparation import (
     run_training_plan_preparation,
 )
 from garmin_buddy.ai.workflows.training_review import (
+    TRAINING_REVIEW_MAX_TOOL_CALLS,
     TrainingReviewInputs,
     run_training_review,
 )
@@ -351,34 +352,21 @@ def main():
             )
 
     with tabs[2]:
-        st.subheader("AI review")
-        st.caption("Structured training review with evidence and lessons.")
+        st.subheader("AI training review")
 
         if services.config.feature_training_review is False:
             st.info("Enable FEATURE_TRAINING_REVIEW=true to use this feature.")
         else:
-            include_key_sessions = st.checkbox(
-                "Include key sessions", value=True, help="Fetch top key sessions."
-            )
-            max_tool_calls = st.number_input(
-                "Max tool calls",
-                min_value=1,
-                max_value=5,
-                value=2,
-                step=1,
-            )
-
-            if st.button("🧠 Generate AI review", type="primary"):
+            if st.button("🧠 Generate review", type="primary"):
                 try:
                     with st.spinner("Generating training review..."):
                         tool_registry = ToolRegistry(
-                            services.repo, max_tool_calls=max_tool_calls
+                            services.repo,
+                            max_tool_calls=TRAINING_REVIEW_MAX_TOOL_CALLS,
                         )
                         inputs = TrainingReviewInputs(
                             start_date=start,
                             end_date=end,
-                            include_key_sessions=include_key_sessions,
-                            max_tool_calls=max_tool_calls,
                         )
                         result = run_training_review(
                             llm_client=services.llm,

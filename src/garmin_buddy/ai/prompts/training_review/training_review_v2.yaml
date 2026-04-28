@@ -21,7 +21,7 @@ user_template: |
   - positives: list[string]
   - mistakes: list[string]
   - main_lessons_and_recommendations: list[string], at least one item
-  - evidence: list[string]
+  - evidence: list[string], reference concrete dates and activity ids when available
   - confidence: float from 0 to 1
   - missing_data: list[string]
 
