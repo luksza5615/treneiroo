@@ -24,7 +24,6 @@ from garmin_buddy.ai.workflows.training_plan_preparation import (
     run_training_plan_preparation,
 )
 from garmin_buddy.ai.workflows.training_review import (
-    TRAINING_REVIEW_PROMPT_VERSION,
     TrainingReviewInputs,
     run_training_review,
 )
@@ -391,16 +390,13 @@ def main():
                 except Exception as exc:
                     st.error(str(exc))
                 else:
-                    st.markdown(render_report_md(result.report))
-                    with st.expander("Show debug"):
-                        st.write(
-                            {
-                                "run_id": result.run_id,
-                                "prompt_version": TRAINING_REVIEW_PROMPT_VERSION,
-                                "parse_ok": result.parse_ok,
-                                "retry_count": result.retry_count,
-                            }
+                    st.markdown(
+                        render_report_md(
+                            result.report,
+                            start_date=start,
+                            end_date=end,
                         )
+                    )
 
     with tabs[3]:
         st.subheader("AI plan preparation")

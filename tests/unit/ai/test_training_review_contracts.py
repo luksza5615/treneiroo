@@ -11,7 +11,7 @@ from garmin_buddy.ai.contracts.contracts import (
 
 def _valid_payload() -> dict[str, object]:
     return {
-        "executive_summary": "Solid week with one high-load risk to monitor.",
+        "summary": "Solid week with one high-load risk to monitor.",
         "positives": ["Consistent volume across five sessions."],
         "mistakes": ["Back-to-back hard days increased fatigue risk."],
         "main_lessons_and_recommendations": [
@@ -27,7 +27,7 @@ def _valid_payload() -> dict[str, object]:
 def test_parse_training_review_report_accepts_valid_payload() -> None:
     report = parse_training_review_report(_valid_payload())
 
-    assert report.executive_summary.startswith("Solid week")
+    assert report.summary.startswith("Solid week")
     assert report.confidence == pytest.approx(0.74)
     assert report.evidence[0].startswith("2026-01-31 activity:123456")
 
@@ -68,7 +68,7 @@ def test_build_fallback_training_review_report_returns_schema_compliant_payload(
         error_reason="invalid_json_from_model",
     )
 
-    assert report.executive_summary == (
+    assert report.summary == (
         "Training review unavailable for 2026-01-01 to 2026-01-07."
     )
     assert report.main_lessons_and_recommendations

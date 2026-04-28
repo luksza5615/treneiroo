@@ -65,7 +65,7 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 
 def _guardrails_pass(report) -> bool:
-    if not report.executive_summary.strip():
+    if not report.summary.strip():
         return False
     if not report.main_lessons_and_recommendations:
         return False

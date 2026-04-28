@@ -25,7 +25,7 @@ _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review
 _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "executive_summary": {"type": "string"},
+        "summary": {"type": "string"},
         "positives": {
             "type": "array",
             "items": {"type": "string"},
@@ -59,7 +59,7 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
-        "executive_summary",
+        "summary",
         "positives",
         "mistakes",
         "main_lessons_and_recommendations",
@@ -69,7 +69,7 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
     "propertyOrdering": [
-        "executive_summary",
+        "summary",
         "positives",
         "mistakes",
         "main_lessons_and_recommendations",
@@ -326,7 +326,7 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     return (
         "Fix the following JSON to match the TrainingReviewReport schema.\n"
         "Return only valid JSON with these exact required keys: "
-        "executive_summary, positives, mistakes, "
+        "summary, positives, mistakes, "
         "main_lessons_and_recommendations, evidence, confidence, missing_data.\n"
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"

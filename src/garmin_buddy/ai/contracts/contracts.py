@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 _EVIDENCE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\s+activity:[^\s]+\s+.+$")
 _REQUIRED_FIELDS = {
-    "executive_summary",
+    "summary",
     "positives",
     "mistakes",
     "main_lessons_and_recommendations",
@@ -19,7 +19,7 @@ _REQUIRED_FIELDS = {
 
 @dataclass(frozen=True)
 class TrainingReviewReport:
-    executive_summary: str
+    summary: str
     positives: list[str]
     mistakes: list[str]
     main_lessons_and_recommendations: list[str]
@@ -29,7 +29,7 @@ class TrainingReviewReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "executive_summary": self.executive_summary,
+            "summary": self.summary,
             "positives": self.positives,
             "mistakes": self.mistakes,
             "main_lessons_and_recommendations": self.main_lessons_and_recommendations,
@@ -42,9 +42,7 @@ class TrainingReviewReport:
 def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewReport:
     _validate_required_fields(payload)
 
-    executive_summary = _validate_non_empty_string(
-        "executive_summary", payload["executive_summary"]
-    )
+    summary = _validate_non_empty_string("summary", payload["summary"])
     positives = _validate_string_list("positives", payload["positives"], 0, 8)
     mistakes = _validate_string_list("mistakes", payload["mistakes"], 0, 12)
     lessons = _validate_string_list(
@@ -60,7 +58,7 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
     )
 
     return TrainingReviewReport(
-        executive_summary=executive_summary,
+        summary=summary,
         positives=positives,
         mistakes=mistakes,
         main_lessons_and_recommendations=lessons,
@@ -92,7 +90,7 @@ def build_fallback_training_review_report(
         missing_data.append(error_reason)
 
     return TrainingReviewReport(
-        executive_summary=(
+        summary=(
             "Training review unavailable "
             f"for {start_date.isoformat()} to {end_date.isoformat()}."
         ),
@@ -115,9 +113,7 @@ def _validate_required_fields(payload: Mapping[str, Any]) -> None:
     if missing_fields:
         raise ValueError(f"Missing required report fields: {', '.join(missing_fields)}")
     if unexpected_fields:
-        raise ValueError(
-            f"Unexpected report fields: {', '.join(unexpected_fields)}"
-        )
+        raise ValueError(f"Unexpected report fields: {', '.join(unexpected_fields)}")
 
 
 def _validate_non_empty_string(field_name: str, value: Any) -> str:

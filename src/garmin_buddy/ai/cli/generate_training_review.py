@@ -58,7 +58,11 @@ def main() -> int:
         model_name=llm.model_name,
     )
 
-    markdown = render_report_md(result.report)
+    markdown = render_report_md(
+        result.report,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
     print(markdown)
     if result.run_id:
         print(f"\nrun_id: {result.run_id}")

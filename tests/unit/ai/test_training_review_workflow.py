@@ -76,7 +76,7 @@ class _FakeLLM:
 def _valid_report_json() -> str:
     return (
         "{"
-        '"executive_summary":"Solid week.",'
+        '"summary":"Solid week.",'
         '"positives":["Consistent volume."],'
         '"mistakes":["Fatigue risk."],'
         '"main_lessons_and_recommendations":["Rest day.","Easy run."],'
@@ -114,7 +114,7 @@ def test_run_training_review_happy_path() -> None:
     assert result.run_id is not None
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
     assert llm.calls[1]["system_instruction"] is not None
-    assert "executive_summary" in llm.calls[1]["response_json_schema"]["required"]
+    assert "summary" in llm.calls[1]["response_json_schema"]["required"]
     assert "Produce only one JSON object." in llm.calls[1]["system_instruction"]
     assert "Produce the most insightful training review" in llm.calls[1]["prompt"]
     assert "Training summary:" in llm.calls[1]["prompt"]
@@ -148,7 +148,7 @@ def test_run_training_review_repairs_invalid_json() -> None:
     assert result.parse_ok is True
     assert len(llm.calls) == 3
     assert llm.calls[2]["system_instruction"] == "Return valid JSON only."
-    assert "executive_summary" in llm.calls[2]["response_json_schema"]["required"]
+    assert "summary" in llm.calls[2]["response_json_schema"]["required"]
     saved_line = json.loads(
         (temp_dir / "training_review_runs.jsonl").read_text(encoding="utf-8").strip()
     )
@@ -158,7 +158,11 @@ def test_run_training_review_repairs_invalid_json() -> None:
 
 def test_run_training_review_repairs_fenced_json_response() -> None:
     llm = _FakeLLM(
-        ['{"activity_ids":[123]}', f"```json\n{_valid_report_json()}\n```", _valid_report_json()]
+        [
+            '{"activity_ids":[123]}',
+            f"```json\n{_valid_report_json()}\n```",
+            _valid_report_json(),
+        ]
     )
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
