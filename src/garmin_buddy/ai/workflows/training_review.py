@@ -19,29 +19,30 @@ from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
 _DEFAULT_MAX_TOOL_CALLS = 2
-_PROMPT_VERSION = "training_review_v1"
+TRAINING_REVIEW_PROMPT_VERSION = "training_review_v2"
+_PROMPT_VERSION = TRAINING_REVIEW_PROMPT_VERSION
 _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review"
 _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "headline": {"type": "string"},
+        "executive_summary": {"type": "string"},
         "positives": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 1,
-            "maxItems": 5,
+            "minItems": 0,
+            "maxItems": 8,
         },
-        "risks": {
+        "mistakes": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 0,
+            "maxItems": 12,
+        },
+        "main_lessons_and_recommendations": {
             "type": "array",
             "items": {"type": "string"},
             "minItems": 1,
-            "maxItems": 5,
-        },
-        "priorities_next_7_days": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 3,
-            "maxItems": 7,
+            "maxItems": 12,
         },
         "evidence": {
             "type": "array",
@@ -58,20 +59,20 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
-        "headline",
+        "executive_summary",
         "positives",
-        "risks",
-        "priorities_next_7_days",
+        "mistakes",
+        "main_lessons_and_recommendations",
         "evidence",
         "confidence",
         "missing_data",
     ],
     "additionalProperties": False,
     "propertyOrdering": [
-        "headline",
+        "executive_summary",
         "positives",
-        "risks",
-        "priorities_next_7_days",
+        "mistakes",
+        "main_lessons_and_recommendations",
         "evidence",
         "confidence",
         "missing_data",
@@ -324,7 +325,9 @@ def _build_prompt(
 def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     return (
         "Fix the following JSON to match the TrainingReviewReport schema.\n"
-        "Return only valid JSON with the exact required keys.\n"
+        "Return only valid JSON with these exact required keys: "
+        "executive_summary, positives, mistakes, "
+        "main_lessons_and_recommendations, evidence, confidence, missing_data.\n"
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"
     )

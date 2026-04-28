@@ -7,31 +7,32 @@ from typing import Any, Mapping
 
 _EVIDENCE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\s+activity:[^\s]+\s+.+$")
 _REQUIRED_FIELDS = {
-    "headline",
+    "executive_summary",
     "positives",
-    "risks",
-    "priorities_next_7_days",
+    "mistakes",
+    "main_lessons_and_recommendations",
     "evidence",
     "confidence",
+    "missing_data",
 }
 
 
 @dataclass(frozen=True)
 class TrainingReviewReport:
-    headline: str
+    executive_summary: str
     positives: list[str]
-    risks: list[str]
-    priorities_next_7_days: list[str]
+    mistakes: list[str]
+    main_lessons_and_recommendations: list[str]
     evidence: list[str]
     confidence: float
     missing_data: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "headline": self.headline,
+            "executive_summary": self.executive_summary,
             "positives": self.positives,
-            "risks": self.risks,
-            "priorities_next_7_days": self.priorities_next_7_days,
+            "mistakes": self.mistakes,
+            "main_lessons_and_recommendations": self.main_lessons_and_recommendations,
             "evidence": self.evidence,
             "confidence": self.confidence,
             "missing_data": self.missing_data,
@@ -41,11 +42,16 @@ class TrainingReviewReport:
 def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewReport:
     _validate_required_fields(payload)
 
-    headline = _validate_non_empty_string("headline", payload["headline"])
-    positives = _validate_string_list("positives", payload["positives"], 1, 5)
-    risks = _validate_string_list("risks", payload["risks"], 1, 5)
-    priorities = _validate_string_list(
-        "priorities_next_7_days", payload["priorities_next_7_days"], 3, 7
+    executive_summary = _validate_non_empty_string(
+        "executive_summary", payload["executive_summary"]
+    )
+    positives = _validate_string_list("positives", payload["positives"], 0, 8)
+    mistakes = _validate_string_list("mistakes", payload["mistakes"], 0, 12)
+    lessons = _validate_string_list(
+        "main_lessons_and_recommendations",
+        payload["main_lessons_and_recommendations"],
+        1,
+        12,
     )
     evidence = _validate_evidence(payload["evidence"])
     confidence = _validate_confidence(payload["confidence"])
@@ -54,10 +60,10 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
     )
 
     return TrainingReviewReport(
-        headline=headline,
+        executive_summary=executive_summary,
         positives=positives,
-        risks=risks,
-        priorities_next_7_days=priorities,
+        mistakes=mistakes,
+        main_lessons_and_recommendations=lessons,
         evidence=evidence,
         confidence=confidence,
         missing_data=missing_data,
@@ -86,10 +92,15 @@ def build_fallback_training_review_report(
         missing_data.append(error_reason)
 
     return TrainingReviewReport(
-        headline=("Training review unavailable"),
+        executive_summary=(
+            "Training review unavailable "
+            f"for {start_date.isoformat()} to {end_date.isoformat()}."
+        ),
         positives=[],
-        risks=[],
-        priorities_next_7_days=[],
+        mistakes=[],
+        main_lessons_and_recommendations=[
+            "Regenerate the review after the missing data or model output is available."
+        ],
         evidence=[],
         confidence=0.0,
         missing_data=missing_data,
@@ -99,9 +110,14 @@ def build_fallback_training_review_report(
 def _validate_required_fields(payload: Mapping[str, Any]) -> None:
     payload_fields = set(payload.keys())
     missing_fields = sorted(_REQUIRED_FIELDS - payload_fields)
+    unexpected_fields = sorted(payload_fields - _REQUIRED_FIELDS)
 
     if missing_fields:
         raise ValueError(f"Missing required report fields: {', '.join(missing_fields)}")
+    if unexpected_fields:
+        raise ValueError(
+            f"Unexpected report fields: {', '.join(unexpected_fields)}"
+        )
 
 
 def _validate_non_empty_string(field_name: str, value: Any) -> str:

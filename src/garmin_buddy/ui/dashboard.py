@@ -24,6 +24,7 @@ from garmin_buddy.ai.workflows.training_plan_preparation import (
     run_training_plan_preparation,
 )
 from garmin_buddy.ai.workflows.training_review import (
+    TRAINING_REVIEW_PROMPT_VERSION,
     TrainingReviewInputs,
     run_training_review,
 )
@@ -352,7 +353,7 @@ def main():
 
     with tabs[2]:
         st.subheader("AI review")
-        st.caption("Structured training review with evidence and priorities.")
+        st.caption("Structured training review with evidence and lessons.")
 
         if services.config.feature_training_review is False:
             st.info("Enable FEATURE_TRAINING_REVIEW=true to use this feature.")
@@ -395,7 +396,7 @@ def main():
                         st.write(
                             {
                                 "run_id": result.run_id,
-                                "prompt_version": "training_review_v1",
+                                "prompt_version": TRAINING_REVIEW_PROMPT_VERSION,
                                 "parse_ok": result.parse_ok,
                                 "retry_count": result.retry_count,
                             }

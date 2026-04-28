@@ -6,10 +6,10 @@ from garmin_buddy.ai.eval.run_eval import evaluate_cases
 def test_evaluate_cases_counts_pass_rates() -> None:
     valid_response = json.dumps(
         {
-            "headline": "Solid week.",
+            "executive_summary": "Solid week.",
             "positives": ["Consistent volume."],
-            "risks": ["Fatigue risk."],
-            "priorities_next_7_days": ["Rest day.", "Easy run.", "Mobility work."],
+            "mistakes": ["Fatigue risk."],
+            "main_lessons_and_recommendations": ["Rest day.", "Easy run."],
             "evidence": ["2026-01-02 activity:123 Long run"],
             "confidence": 0.6,
             "missing_data": [],

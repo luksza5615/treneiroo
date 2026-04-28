@@ -76,10 +76,10 @@ class _FakeLLM:
 def _valid_report_json() -> str:
     return (
         "{"
-        '"headline":"Solid week.",'
+        '"executive_summary":"Solid week.",'
         '"positives":["Consistent volume."],'
-        '"risks":["Fatigue risk."],'
-        '"priorities_next_7_days":["Rest day.","Easy run.","Mobility work."],'
+        '"mistakes":["Fatigue risk."],'
+        '"main_lessons_and_recommendations":["Rest day.","Easy run."],'
         '"evidence":["2026-01-02 activity:123 Long run"],'
         '"confidence":0.6,'
         '"missing_data":[]'
@@ -114,9 +114,9 @@ def test_run_training_review_happy_path() -> None:
     assert result.run_id is not None
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
     assert llm.calls[1]["system_instruction"] is not None
-    assert "headline" in llm.calls[1]["response_json_schema"]["required"]
+    assert "executive_summary" in llm.calls[1]["response_json_schema"]["required"]
     assert "Produce only one JSON object." in llm.calls[1]["system_instruction"]
-    assert "Generate a training review for the period:" in llm.calls[1]["prompt"]
+    assert "Produce the most insightful training review" in llm.calls[1]["prompt"]
     assert "Training summary:" in llm.calls[1]["prompt"]
     assert '"evidence_sessions": []' not in llm.calls[1]["prompt"]
     saved_line = json.loads(
@@ -148,7 +148,7 @@ def test_run_training_review_repairs_invalid_json() -> None:
     assert result.parse_ok is True
     assert len(llm.calls) == 3
     assert llm.calls[2]["system_instruction"] == "Return valid JSON only."
-    assert "headline" in llm.calls[2]["response_json_schema"]["required"]
+    assert "executive_summary" in llm.calls[2]["response_json_schema"]["required"]
     saved_line = json.loads(
         (temp_dir / "training_review_runs.jsonl").read_text(encoding="utf-8").strip()
     )

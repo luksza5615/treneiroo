@@ -5,11 +5,15 @@ from garmin_buddy.ai.contracts.contracts import TrainingReviewReport
 
 def render_report_md(report: TrainingReviewReport) -> str:
     sections: list[str] = []
-    sections.append(f"# {report.headline}")
+    sections.append("# Training Review")
+    sections.append(f"## Executive summary\n{report.executive_summary}")
     sections.append(_render_list_section("Positives", report.positives))
-    sections.append(_render_list_section("Risks", report.risks))
+    sections.append(_render_list_section("Mistakes", report.mistakes))
     sections.append(
-        _render_list_section("Priorities (next 7 days)", report.priorities_next_7_days)
+        _render_list_section(
+            "Main lessons and recommendations",
+            report.main_lessons_and_recommendations,
+        )
     )
     sections.append(_render_list_section("Evidence", report.evidence))
     sections.append(f"**Confidence:** {report.confidence:.2f}")

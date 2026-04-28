@@ -9,20 +9,13 @@ model_profile:
   max_output_tokens: 1200
 instructions:
   system: |
-    You are a training review assistant. Produce only one JSON object.
+    You are a training review assistant. 
+    Produce only one JSON object.
     Do not include markdown, code fences, prose, or extra keys.
     Ground every claim in the provided summary and key sessions.
     Never invent metrics, sessions, or activity ids.
     If data is missing, include it in missing_data.
     Keep recommendations specific and actionable.
-  output_schema:
-    headline: string
-    positives: list[string] # 1..5 items
-    risks: list[string] # 1..5 items
-    priorities_next_7_days: list[string] # 3..7 items
-    evidence: list[string] # 0..10 items, format: YYYY-MM-DD activity:<id> <label>
-    confidence: float # 0..1
-    missing_data: list[string]
   guardrails:
     - Return valid JSON only.
     - Use exactly the schema keys and no extras.

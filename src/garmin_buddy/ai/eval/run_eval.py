@@ -65,9 +65,9 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 
 def _guardrails_pass(report) -> bool:
-    if not report.headline.strip():
+    if not report.executive_summary.strip():
         return False
-    if not (3 <= len(report.priorities_next_7_days) <= 7):
+    if not report.main_lessons_and_recommendations:
         return False
     if report.confidence < 0 or report.confidence > 1:
         return False
