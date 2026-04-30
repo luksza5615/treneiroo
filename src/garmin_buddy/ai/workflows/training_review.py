@@ -15,10 +15,10 @@ from garmin_buddy.ai.contracts.contracts import (
     parse_training_review_report,
 )
 from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
-from garmin_buddy.ai.logging.run_store import RunStore
+from garmin_buddy.ai.logging.execution_store import ExecutionStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 
-TRAINING_REVIEW_MAX_TOOL_CALLS = 2
+TRAINING_REVIEW_MAX_TOOL_CALLS = 3
 TRAINING_REVIEW_PROMPT_VERSION = "training_review_v2"
 _PROMPT_VERSION = TRAINING_REVIEW_PROMPT_VERSION
 _PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "training_review"
@@ -119,7 +119,7 @@ class TrainingReviewResult:
     raw_response: str
     parse_ok: bool
     retry_count: int
-    run_id: str | None = None
+    execution_id: str | None = None
 
 
 def run_training_review(
@@ -127,7 +127,7 @@ def run_training_review(
     llm_client: LLMClient,
     tool_registry: ToolRegistry,
     inputs: TrainingReviewInputs,
-    run_store: RunStore | None = None,
+    execution_store: ExecutionStore | None = None,
     model_name: str | None = None,
 ) -> TrainingReviewResult:
     current_stage = "get_training_summary"
@@ -178,7 +178,7 @@ def run_training_review(
                 missing_data.append("key_sessions_unavailable")
 
             current_stage = "fetch_evidence"
-            evidence_sessions = _maybe_fetch_evidence(
+            evidence_sessions = _fetch_more_training_details(
                 llm_client=llm_client,
                 tool_registry=tool_registry,
                 start_date=inputs.start_date,
@@ -224,9 +224,9 @@ def run_training_review(
                 retry_count=0 if parse_ok else 1,
             )
     except Exception as exc:
-        if run_store is not None:
-            run_store.append_failure(
-                _build_run_payload(
+        if execution_store is not None:
+            execution_store.append_failure(
+                _build_execution_payload(
                     inputs=inputs,
                     model_name=model_name,
                     tool_registry=tool_registry,
@@ -242,11 +242,11 @@ def run_training_review(
             )
         raise
 
-    if run_store is None:
+    if execution_store is None:
         return result
 
-    artifact = run_store.append_run(
-        _build_run_payload(
+    artifact = execution_store.append_execution(
+        _build_execution_payload(
             inputs=inputs,
             model_name=model_name,
             tool_registry=tool_registry,
@@ -259,7 +259,7 @@ def run_training_review(
             token_usage=token_usage,
         )
     )
-    return replace(result, run_id=artifact.run_id)
+    return replace(result, execution_id=artifact.execution_id)
 
 
 def _parse_or_repair(
@@ -346,7 +346,7 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     )
 
 
-def _maybe_fetch_evidence(
+def _fetch_more_training_details(
     *,
     llm_client: LLMClient,
     tool_registry: ToolRegistry,
@@ -454,7 +454,7 @@ def _json_default(value: object) -> str:
     return str(value)
 
 
-def _build_run_payload(
+def _build_execution_payload(
     *,
     inputs: TrainingReviewInputs,
     model_name: str | None,

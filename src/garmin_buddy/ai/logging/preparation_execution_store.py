@@ -7,16 +7,19 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from garmin_buddy.ai.logging.run_store import _redact_sensitive, _serialize_exception
+from garmin_buddy.ai.logging.execution_store import (
+    _redact_sensitive,
+    _serialize_exception,
+)
 
 
 @dataclass(frozen=True)
-class PreparationRunArtifact:
-    run_id: str
+class PreparationExecutionArtifact:
+    execution_id: str
     payload: dict[str, Any]
 
 
-class PreparationRunStore:
+class PreparationExecutionStore:
     """Persist stage traces because multi-step planning must be replayable and inspectable."""
 
     def __init__(self, base_dir: Path) -> None:
@@ -25,26 +28,29 @@ class PreparationRunStore:
         self._strategy_dir = self._base_dir / "preparation_strategy_state"
         self._strategy_dir.mkdir(parents=True, exist_ok=True)
 
-    def append_run(self, payload: dict[str, Any]) -> PreparationRunArtifact:
-        run_id = str(uuid4())
+    def append_execution(self, payload: dict[str, Any]) -> PreparationExecutionArtifact:
+        execution_id = str(uuid4())
         artifact_payload = _format_dates(dict(_redact_sensitive(payload)))
-        artifact_payload.setdefault("run_status", "succeeded")
-        artifact_payload["run_id"] = run_id
+        artifact_payload.setdefault("execution_status", "succeeded")
+        artifact_payload["execution_id"] = execution_id
         artifact_payload["created_at"] = datetime.now(timezone.utc).isoformat()
 
-        path = self._base_dir / "training_plan_preparation_runs.jsonl"
+        path = self._base_dir / "training_plan_preparation_executions.jsonl"
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(artifact_payload) + "\n")
 
-        return PreparationRunArtifact(run_id=run_id, payload=artifact_payload)
+        return PreparationExecutionArtifact(
+            execution_id=execution_id,
+            payload=artifact_payload,
+        )
 
     def append_failure(
         self, payload: dict[str, Any], error: Exception | BaseException
-    ) -> PreparationRunArtifact:
+    ) -> PreparationExecutionArtifact:
         failure_payload = dict(payload)
-        failure_payload["run_status"] = "failed"
+        failure_payload["execution_status"] = "failed"
         failure_payload["error"] = _serialize_exception(error)
-        return self.append_run(failure_payload)
+        return self.append_execution(failure_payload)
 
     def save_strategy_state(self, strategy_id: str, payload: dict[str, Any]) -> None:
         path = self._strategy_dir / f"{strategy_id}.json"

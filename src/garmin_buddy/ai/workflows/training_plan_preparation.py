@@ -12,7 +12,9 @@ from uuid import uuid4
 import yaml
 
 from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
-from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
+from garmin_buddy.ai.logging.preparation_execution_store import (
+    PreparationExecutionStore,
+)
 from garmin_buddy.ai.contracts.preparation_contracts import (
     CritiqueArtifact,
     LabAnalysisArtifact,
@@ -251,7 +253,7 @@ def run_training_plan_preparation(
     *,
     llm_client: LLMClient,
     tool_registry: PreparationToolRegistry,
-    run_store: PreparationRunStore,
+    execution_store: PreparationExecutionStore,
     inputs: TrainingPlanPreparationInputs,
 ) -> PreparationResult:
     """Generate the macro strategy first because it is the highest-value approval boundary."""
@@ -267,7 +269,7 @@ def run_training_plan_preparation(
         current_stage = "lab_analysis"
         lab_analysis, lab_parse_ok, lab_retries = _resolve_lab_analysis(
             llm_client=llm_client,
-            run_store=run_store,
+            execution_store=execution_store,
             context=context,
             usage_tracker=token_usage,
         )
@@ -320,7 +322,7 @@ def run_training_plan_preparation(
         )
 
         current_stage = "save_strategy_state"
-        run_store.save_strategy_state(
+        execution_store.save_strategy_state(
             strategy_id,
             {
                 "strategy_id": strategy_id,
@@ -367,8 +369,8 @@ def run_training_plan_preparation(
             parse_ok=parse_ok,
             retry_count=retry_count,
         )
-        current_stage = "append_run"
-        run_store.append_run(
+        current_stage = "append_execution"
+        execution_store.append_execution(
             {
                 "workflow": "training_plan_preparation",
                 "stage": "strategy_generation",
@@ -383,7 +385,7 @@ def run_training_plan_preparation(
         )
         return result
     except Exception as exc:
-        run_store.append_failure(
+        execution_store.append_failure(
             _build_preparation_failure_payload(
                 workflow_stage="strategy_generation",
                 failed_stage=current_stage,
@@ -399,9 +401,9 @@ def run_training_plan_preparation(
 
 
 def approve_training_plan_strategy(
-    *, run_store: PreparationRunStore, strategy_id: str
+    *, execution_store: PreparationExecutionStore, strategy_id: str
 ) -> dict[str, Any]:
-    state = run_store.load_strategy_state(strategy_id)
+    state = execution_store.load_strategy_state(strategy_id)
     if state is None:
         raise ValueError(f"Strategy '{strategy_id}' was not found.")
 
@@ -409,7 +411,7 @@ def approve_training_plan_strategy(
     strategy["approval_status"] = "approved"
     state["strategy"] = strategy
     state["approved"] = True
-    run_store.save_strategy_state(strategy_id, state)
+    execution_store.save_strategy_state(strategy_id, state)
     return state
 
 
@@ -417,7 +419,7 @@ def generate_phase_plan_from_strategy(
     *,
     llm_client: LLMClient,
     tool_registry: PreparationToolRegistry,
-    run_store: PreparationRunStore,
+    execution_store: PreparationExecutionStore,
     inputs: TrainingPlanPreparationInputs,
     strategy_id: str,
 ) -> PreparationResult:
@@ -427,7 +429,7 @@ def generate_phase_plan_from_strategy(
     token_usage = TokenUsageTotals()
 
     try:
-        state = run_store.load_strategy_state(strategy_id)
+        state = execution_store.load_strategy_state(strategy_id)
         if state is None:
             raise ValueError(f"Strategy '{strategy_id}' was not found.")
         if state.get("approved") is not True:
@@ -445,7 +447,7 @@ def generate_phase_plan_from_strategy(
             state["strategy"] = stored_strategy
             state["stale"] = True
             state["stale_reason"] = "upstream_input_hash_changed"
-            run_store.save_strategy_state(strategy_id, state)
+            execution_store.save_strategy_state(strategy_id, state)
 
             stale_result = PreparationResult(
                 context=current_context,
@@ -462,8 +464,8 @@ def generate_phase_plan_from_strategy(
                 retry_count=0,
                 strategy_stale=True,
             )
-            current_stage = "append_run"
-            run_store.append_run(
+            current_stage = "append_execution"
+            execution_store.append_execution(
                 {
                     "workflow": "training_plan_preparation",
                     "stage": "phase_generation",
@@ -541,7 +543,7 @@ def generate_phase_plan_from_strategy(
         state["phase_plan"] = phase_plan.to_dict()
         state["critique"] = critique.to_dict()
         current_stage = "save_strategy_state"
-        run_store.save_strategy_state(strategy_id, state)
+        execution_store.save_strategy_state(strategy_id, state)
 
         result = PreparationResult(
             context=current_context,
@@ -557,8 +559,8 @@ def generate_phase_plan_from_strategy(
             parse_ok=parse_ok,
             retry_count=retry_count,
         )
-        current_stage = "append_run"
-        run_store.append_run(
+        current_stage = "append_execution"
+        execution_store.append_execution(
             {
                 "workflow": "training_plan_preparation",
                 "stage": "phase_generation",
@@ -573,7 +575,7 @@ def generate_phase_plan_from_strategy(
         )
         return result
     except Exception as exc:
-        run_store.append_failure(
+        execution_store.append_failure(
             _build_preparation_failure_payload(
                 workflow_stage="phase_generation",
                 failed_stage=current_stage,
@@ -741,11 +743,11 @@ def _build_planned_training_summary(
 def _resolve_lab_analysis(
     *,
     llm_client: LLMClient,
-    run_store: PreparationRunStore,
+    execution_store: PreparationExecutionStore,
     context: NormalizedPreparationContext,
     usage_tracker: TokenUsageTotals,
 ) -> tuple[LabAnalysisArtifact, bool, int]:
-    cached_payload = run_store.find_lab_analysis(context.lab_fingerprint)
+    cached_payload = execution_store.find_lab_analysis(context.lab_fingerprint)
     if cached_payload is not None:
         return LabAnalysisArtifact.from_payload(cached_payload), True, 0
     return _run_structured_stage(

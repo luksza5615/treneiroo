@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from garmin_buddy.ai.llm_analysis_service import LLMService
-from garmin_buddy.ai.logging.run_store import RunStore
+from garmin_buddy.ai.logging.execution_store import ExecutionStore
 from garmin_buddy.ai.rendering.report_renderer import render_report_md
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 from garmin_buddy.ai.user_context import load_user_context
@@ -23,9 +23,7 @@ def _parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "Dates must be in YYYY-MM-DD format."
-        ) from exc
+        raise argparse.ArgumentTypeError("Dates must be in YYYY-MM-DD format.") from exc
 
 
 def main() -> int:
@@ -33,14 +31,14 @@ def main() -> int:
     parser.add_argument("--start-date", required=True, type=_parse_date)
     parser.add_argument("--end-date", required=True, type=_parse_date)
     parser.add_argument("--athlete-id", type=int, default=None)
-    parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    parser.add_argument("--executions-dir", type=Path, default=Path("executions"))
     args = parser.parse_args()
 
     cfg = Config.from_env()
     db = Database.create_db(cfg)
     repo = ActivityRepository(db)
     llm = LLMService(cfg.llm_api_key)
-    run_store = RunStore(args.runs_dir)
+    execution_store = ExecutionStore(args.executions_dir)
 
     tool_registry = ToolRegistry(
         repo,
@@ -56,7 +54,7 @@ def main() -> int:
         llm_client=llm,
         tool_registry=tool_registry,
         inputs=inputs,
-        run_store=run_store,
+        execution_store=execution_store,
         model_name=llm.model_name,
     )
 
@@ -66,8 +64,8 @@ def main() -> int:
         end_date=args.end_date,
     )
     print(markdown)
-    if result.run_id:
-        print(f"\nrun_id: {result.run_id}")
+    if result.execution_id:
+        print(f"\nexecution_id: {result.execution_id}")
 
     return 0
 

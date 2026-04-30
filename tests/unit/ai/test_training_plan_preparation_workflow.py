@@ -10,7 +10,9 @@ from uuid import uuid4
 import pandas as pd
 import pytest
 
-from garmin_buddy.ai.logging.preparation_run_store import PreparationRunStore
+from garmin_buddy.ai.logging.preparation_execution_store import (
+    PreparationExecutionStore,
+)
 from garmin_buddy.ai.tools.training_plan_preparation_tools import (
     PreparationToolRegistry,
 )
@@ -107,7 +109,7 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
         usages=[(10, 0, 5), (11, 0, 6), (12, 0, 7), (13, 0, 8), (14, 0, 9)],
     )
     temp_dir = _workspace_temp_dir("prep-workflow")
-    store = PreparationRunStore(temp_dir)
+    store = PreparationExecutionStore(temp_dir)
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -119,7 +121,7 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
     result = run_training_plan_preparation(
         llm_client=llm,
         tool_registry=registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -149,7 +151,7 @@ def test_run_training_plan_preparation_generates_strategy() -> None:
         "confidence",
     ]
     saved_line = json.loads(
-        (temp_dir / "training_plan_preparation_runs.jsonl")
+        (temp_dir / "training_plan_preparation_executions.jsonl")
         .read_text(encoding="utf-8")
         .strip()
     )
@@ -170,7 +172,7 @@ def test_run_training_plan_preparation_repair_uses_structured_output_schema() ->
         usages=[(9, 0, 3), (8, 0, 4), (10, 0, 5), (11, 0, 6), (12, 0, 7), (13, 0, 8)],
     )
     temp_dir = _workspace_temp_dir("prep-repair")
-    store = PreparationRunStore(temp_dir)
+    store = PreparationExecutionStore(temp_dir)
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -182,7 +184,7 @@ def test_run_training_plan_preparation_repair_uses_structured_output_schema() ->
     result = run_training_plan_preparation(
         llm_client=llm,
         tool_registry=registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -192,11 +194,9 @@ def test_run_training_plan_preparation_repair_uses_structured_output_schema() ->
     assert result.parse_ok is True
     assert result.retry_count == 1
     assert llm.calls[1]["system_instruction"] == "Return valid JSON only."
-    assert llm.calls[1]["response_json_schema"] == llm.calls[0][
-        "response_json_schema"
-    ]
+    assert llm.calls[1]["response_json_schema"] == llm.calls[0]["response_json_schema"]
     saved_line = json.loads(
-        (temp_dir / "training_plan_preparation_runs.jsonl")
+        (temp_dir / "training_plan_preparation_executions.jsonl")
         .read_text(encoding="utf-8")
         .strip()
     )
@@ -214,7 +214,7 @@ def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
             '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
         ]
     )
-    store = PreparationRunStore(_workspace_temp_dir("prep-workflow"))
+    store = PreparationExecutionStore(_workspace_temp_dir("prep-workflow"))
     initial_registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -225,14 +225,14 @@ def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
     initial_result = run_training_plan_preparation(
         llm_client=llm,
         tool_registry=initial_registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
         ),
     )
     approve_training_plan_strategy(
-        run_store=store, strategy_id=initial_result.strategy.strategy_id
+        execution_store=store, strategy_id=initial_result.strategy.strategy_id
     )
 
     phase_registry = PreparationToolRegistry(
@@ -245,7 +245,7 @@ def test_generate_phase_plan_marks_strategy_stale_when_inputs_change() -> None:
     phase_result = generate_phase_plan_from_strategy(
         llm_client=_FakeLLM([]),
         tool_registry=phase_registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -267,7 +267,7 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
             '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
         ]
     )
-    store = PreparationRunStore(_workspace_temp_dir("prep-phase"))
+    store = PreparationExecutionStore(_workspace_temp_dir("prep-phase"))
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -278,14 +278,14 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
     initial_result = run_training_plan_preparation(
         llm_client=initial_llm,
         tool_registry=registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
         ),
     )
     approve_training_plan_strategy(
-        run_store=store, strategy_id=initial_result.strategy.strategy_id
+        execution_store=store, strategy_id=initial_result.strategy.strategy_id
     )
 
     phase_llm = _FakeLLM(
@@ -306,7 +306,7 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
     result = generate_phase_plan_from_strategy(
         llm_client=phase_llm,
         tool_registry=phase_registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -324,7 +324,7 @@ def test_generate_phase_plan_uses_structured_output_schemas() -> None:
         "enum"
     ] == ["accept", "revise"]
     saved_lines = (
-        (store._base_dir / "training_plan_preparation_runs.jsonl")
+        (store._base_dir / "training_plan_preparation_executions.jsonl")
         .read_text(encoding="utf-8")
         .strip()
         .splitlines()
@@ -345,7 +345,7 @@ def test_run_training_plan_preparation_serializes_date_context_values() -> None:
             '{"planning_horizon":"4 months","strategic_goal":"Build to a strong 10k.","mesocycles":["Base","Specific"],"progression_logic":["Grow load gradually"],"recovery_logic":["Deload every 4th week"],"risks":["Ferritin"],"assumptions":["Good availability"],"missing_data":[],"confidence":0.72}',
         ]
     )
-    store = PreparationRunStore(_workspace_temp_dir("prep-workflow"))
+    store = PreparationExecutionStore(_workspace_temp_dir("prep-workflow"))
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -361,7 +361,7 @@ def test_run_training_plan_preparation_serializes_date_context_values() -> None:
     result = run_training_plan_preparation(
         llm_client=llm,
         tool_registry=registry,
-        run_store=store,
+        execution_store=store,
         inputs=TrainingPlanPreparationInputs(
             start_date=date(2026, 2, 1),
             end_date=date(2026, 2, 28),
@@ -372,7 +372,7 @@ def test_run_training_plan_preparation_serializes_date_context_values() -> None:
     assert result.context.lab_markers["sample_date"] == date(2026, 1, 30)
 
 
-def test_run_training_plan_preparation_persists_failed_runs() -> None:
+def test_run_training_plan_preparation_persists_failed_executions() -> None:
     llm = _FakeLLM(
         [
             '{"summary":"Lab ok","findings":["Ferritin is low-normal"],"training_implications":["Use conservative intensity"],"risk_flags":["ferritin_watch"],"missing_data":[],"confidence":0.7}',
@@ -381,7 +381,7 @@ def test_run_training_plan_preparation_persists_failed_runs() -> None:
         usages=[(12, 0, 6)],
     )
     temp_dir = _workspace_temp_dir("prep-workflow-failure")
-    store = PreparationRunStore(temp_dir)
+    store = PreparationExecutionStore(temp_dir)
     registry = PreparationToolRegistry(
         repository=_DummyRepository(),
         max_tool_calls=8,
@@ -394,7 +394,7 @@ def test_run_training_plan_preparation_persists_failed_runs() -> None:
         run_training_plan_preparation(
             llm_client=llm,
             tool_registry=registry,
-            run_store=store,
+            execution_store=store,
             inputs=TrainingPlanPreparationInputs(
                 start_date=date(2026, 2, 1),
                 end_date=date(2026, 2, 28),
@@ -402,11 +402,11 @@ def test_run_training_plan_preparation_persists_failed_runs() -> None:
         )
 
     saved_line = json.loads(
-        (temp_dir / "training_plan_preparation_runs.jsonl")
+        (temp_dir / "training_plan_preparation_executions.jsonl")
         .read_text(encoding="utf-8")
         .strip()
     )
-    assert saved_line["run_status"] == "failed"
+    assert saved_line["execution_status"] == "failed"
     assert saved_line["stage"] == "strategy_generation"
     assert saved_line["failed_stage"] == "past_phase_review"
     assert saved_line["error"]["type"] == "RuntimeError"

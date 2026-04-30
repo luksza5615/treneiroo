@@ -11,11 +11,11 @@ import pytest
 
 from garmin_buddy.ai.contracts.contracts import TrainingReviewReport
 from garmin_buddy.ai.llm_analysis_service import TokenUsageTotals
-from garmin_buddy.ai.logging.run_store import RunStore
+from garmin_buddy.ai.logging.execution_store import ExecutionStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 from garmin_buddy.ai.workflows.training_review import (
     TrainingReviewInputs,
-    _maybe_fetch_evidence,
+    _fetch_more_training_details,
     run_training_review,
 )
 
@@ -94,7 +94,7 @@ def test_run_training_review_happy_path() -> None:
     )
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     temp_dir = _workspace_temp_dir("review-success")
-    store = RunStore(temp_dir)
+    store = ExecutionStore(temp_dir)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
@@ -104,14 +104,14 @@ def test_run_training_review_happy_path() -> None:
         llm_client=llm,
         tool_registry=registry,
         inputs=inputs,
-        run_store=store,
+        execution_store=store,
         model_name="test-model",
     )
 
     assert result.parse_ok is True
     assert isinstance(result.report, TrainingReviewReport)
     assert result.report.confidence == 0.6
-    assert result.run_id is not None
+    assert result.execution_id is not None
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
     assert llm.calls[1]["system_instruction"] is not None
     assert "summary" in llm.calls[1]["response_json_schema"]["required"]
@@ -120,7 +120,9 @@ def test_run_training_review_happy_path() -> None:
     assert "Training summary:" in llm.calls[1]["prompt"]
     assert '"evidence_sessions": []' not in llm.calls[1]["prompt"]
     saved_line = json.loads(
-        (temp_dir / "training_review_runs.jsonl").read_text(encoding="utf-8").strip()
+        (temp_dir / "training_review_executions.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
     )
     assert saved_line["total_input_tokens"] == 34
     assert saved_line["total_output_tokens"] == 19
@@ -187,7 +189,7 @@ def test_run_training_review_repairs_invalid_json() -> None:
         llm_client=llm,
         tool_registry=registry,
         inputs=inputs,
-        run_store=RunStore(temp_dir),
+        execution_store=ExecutionStore(temp_dir),
     )
 
     assert result.parse_ok is True
@@ -195,7 +197,9 @@ def test_run_training_review_repairs_invalid_json() -> None:
     assert llm.calls[2]["system_instruction"] == "Return valid JSON only."
     assert "summary" in llm.calls[2]["response_json_schema"]["required"]
     saved_line = json.loads(
-        (temp_dir / "training_review_runs.jsonl").read_text(encoding="utf-8").strip()
+        (temp_dir / "training_review_executions.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
     )
     assert saved_line["total_input_tokens"] == 39
     assert saved_line["total_output_tokens"] == 21
@@ -245,13 +249,13 @@ def test_run_training_review_returns_fallback_when_repair_fails() -> None:
     assert result.report.confidence == 0.0
 
 
-def test_maybe_fetch_evidence_rejects_fenced_json_response() -> None:
+def test_fetch_more_training_details_rejects_fenced_json_response() -> None:
     llm = _FakeLLM(['```json\n{"activity_ids":[123]}\n```'])
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     missing_data: list[str] = []
     usage_tracker = TokenUsageTotals()
 
-    evidence = _maybe_fetch_evidence(
+    evidence = _fetch_more_training_details(
         llm_client=llm,
         tool_registry=registry,
         start_date=date(2026, 1, 1),
@@ -273,14 +277,14 @@ def test_maybe_fetch_evidence_rejects_fenced_json_response() -> None:
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
 
 
-def test_run_training_review_persists_failed_runs_when_llm_errors() -> None:
+def test_run_training_review_persists_failed_executions_when_llm_errors() -> None:
     llm = _FakeLLM(
         ['{"activity_ids":[123]}', RuntimeError("503 Service Unavailable")],
         usages=[(9, 0, 2)],
     )
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
     temp_dir = _workspace_temp_dir("review-failure")
-    store = RunStore(temp_dir)
+    store = ExecutionStore(temp_dir)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
@@ -291,14 +295,16 @@ def test_run_training_review_persists_failed_runs_when_llm_errors() -> None:
             llm_client=llm,
             tool_registry=registry,
             inputs=inputs,
-            run_store=store,
+            execution_store=store,
             model_name="test-model",
         )
 
     saved_line = json.loads(
-        (temp_dir / "training_review_runs.jsonl").read_text(encoding="utf-8").strip()
+        (temp_dir / "training_review_executions.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
     )
-    assert saved_line["run_status"] == "failed"
+    assert saved_line["execution_status"] == "failed"
     assert saved_line["failed_stage"] == "generate_report"
     assert saved_line["error"]["type"] == "RuntimeError"
     assert saved_line["total_input_tokens"] == 9

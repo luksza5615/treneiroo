@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from garmin_buddy.ai.logging.run_store import RunStore, _format_dates
+from garmin_buddy.ai.logging.execution_store import ExecutionStore, _format_dates
 
 
-def test_run_store_redacts_sensitive_fields(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_execution_store_redacts_sensitive_fields(tmp_path: Path) -> None:
+    store = ExecutionStore(tmp_path)
 
-    artifact = store.append_run(
+    artifact = store.append_execution(
         {
             "prompt_version": "v1",
             "api_key": "secret",
@@ -18,12 +18,12 @@ def test_run_store_redacts_sensitive_fields(tmp_path: Path) -> None:
         }
     )
 
-    saved_line = json.loads((tmp_path / "training_review_runs.jsonl").read_text())
+    saved_line = json.loads((tmp_path / "training_review_executions.jsonl").read_text())
 
-    assert artifact.run_id
+    assert artifact.execution_id
     assert artifact.payload["api_key"] == "***redacted***"
     assert artifact.payload["nested"]["password"] == "***redacted***"
-    assert (tmp_path / "training_review_runs.jsonl").exists()
+    assert (tmp_path / "training_review_executions.jsonl").exists()
     assert saved_line["total_input_tokens"] == 123
     assert saved_line["total_output_tokens"] == 45
 
@@ -59,16 +59,16 @@ def test_format_dates_does_not_mutate_input_payload() -> None:
     assert isinstance(nested_payload["items"][0], datetime)
 
 
-def test_append_run_formats_nested_datetime_values(tmp_path: Path) -> None:
+def test_append_execution_formats_nested_datetime_values(tmp_path: Path) -> None:
     from datetime import datetime
 
-    store = RunStore(tmp_path)
+    store = ExecutionStore(tmp_path)
     payload = {
         "events": [{"started_at": datetime(2024, 3, 4, 5, 6, 7)}],
         "nested": {"ended_at": datetime(2024, 3, 4, 6, 6, 7)},
     }
 
-    artifact = store.append_run(payload)
+    artifact = store.append_execution(payload)
 
     assert isinstance(artifact.payload["events"][0]["started_at"], str)
     assert isinstance(artifact.payload["nested"]["ended_at"], str)
@@ -76,16 +76,16 @@ def test_append_run_formats_nested_datetime_values(tmp_path: Path) -> None:
 
 
 def test_append_failure_persists_error_metadata(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+    store = ExecutionStore(tmp_path)
 
     try:
         raise RuntimeError("503 Service Unavailable")
     except RuntimeError as exc:
         artifact = store.append_failure({"api_key": "secret"}, exc)
 
-    saved_line = json.loads((tmp_path / "training_review_runs.jsonl").read_text())
+    saved_line = json.loads((tmp_path / "training_review_executions.jsonl").read_text())
 
-    assert artifact.payload["run_status"] == "failed"
+    assert artifact.payload["execution_status"] == "failed"
     assert saved_line["api_key"] == "***redacted***"
     assert saved_line["error"]["type"] == "RuntimeError"
     assert "503 Service Unavailable" in saved_line["error"]["message"]

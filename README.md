@@ -54,7 +54,7 @@ Treneiro turns raw activity logs into:
 ├── 📄 app.py
 └── 📂 docs/
 ├── 📄 pyproject.toml
-└── 📂 runs/
+└── 📂 executions/
 └── 📂 src/
 │  └── 📂 treneiroo/
 │    └── 📂 ai/
