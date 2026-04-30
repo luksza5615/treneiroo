@@ -146,6 +146,31 @@ def test_run_training_review_uses_fixed_budget_without_budget_missing_data() -> 
     assert "evidence_tool_budget_exhausted" not in llm.calls[0]["prompt"]
 
 
+def test_run_training_review_includes_user_context_outside_optional_notes() -> None:
+    llm = _FakeLLM([_valid_report_json()])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
+    inputs = TrainingReviewInputs(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 7),
+        user_context="Goal: sub-3 marathon\nCapacity: 5 runs per week",
+    )
+
+    result = run_training_review(
+        llm_client=llm,
+        tool_registry=registry,
+        inputs=inputs,
+    )
+
+    prompt = llm.calls[0]["prompt"]
+    assert result.parse_ok is True
+    assert "User context:" in prompt
+    assert "Goal: sub-3 marathon" in prompt
+    assert "Capacity: 5 runs per week" in prompt
+    assert "Optional notes:" in prompt
+    assert prompt.index("User context:") < prompt.index("Optional notes:")
+    assert '"evidence_sessions": []' not in prompt
+
+
 def test_run_training_review_repairs_invalid_json() -> None:
     llm = _FakeLLM(
         ['{"activity_ids":[123]}', "{invalid json", _valid_report_json()],

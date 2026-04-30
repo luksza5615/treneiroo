@@ -28,6 +28,7 @@ docs/
 .uv-cache/
 runs/
 .garmin_session/
+src/garmin_buddy/ai/user_context.md
 
 .cursorignore
 AGENTS.md

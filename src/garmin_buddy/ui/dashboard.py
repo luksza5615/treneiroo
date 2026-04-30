@@ -17,6 +17,7 @@ from garmin_buddy.ai.tools.training_plan_preparation_tools import (
     PreparationToolRegistry,
 )
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
+from garmin_buddy.ai.user_context import load_user_context
 from garmin_buddy.ai.workflows.training_plan_preparation import (
     TrainingPlanPreparationInputs,
     approve_training_plan_strategy,
@@ -367,6 +368,7 @@ def main():
                         inputs = TrainingReviewInputs(
                             start_date=start,
                             end_date=end,
+                            user_context=load_user_context(),
                         )
                         result = run_training_review(
                             llm_client=services.llm,

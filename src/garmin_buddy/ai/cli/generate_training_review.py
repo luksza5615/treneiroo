@@ -8,6 +8,7 @@ from garmin_buddy.ai.llm_analysis_service import LLMService
 from garmin_buddy.ai.logging.run_store import RunStore
 from garmin_buddy.ai.rendering.report_renderer import render_report_md
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
+from garmin_buddy.ai.user_context import load_user_context
 from garmin_buddy.ai.workflows.training_review import (
     TRAINING_REVIEW_MAX_TOOL_CALLS,
     TrainingReviewInputs,
@@ -49,6 +50,7 @@ def main() -> int:
         start_date=args.start_date,
         end_date=args.end_date,
         athlete_id=args.athlete_id,
+        user_context=load_user_context(),
     )
     result = run_training_review(
         llm_client=llm,

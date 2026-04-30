@@ -110,6 +110,7 @@ class TrainingReviewInputs:
     start_date: date
     end_date: date
     athlete_id: int | None = None
+    user_context: str | None = None
 
 
 @dataclass(frozen=True)
@@ -196,6 +197,7 @@ def run_training_review(
                 key_sessions=key_sessions_payload,
                 evidence_sessions=evidence_sessions,
                 missing_data=missing_data,
+                user_context=inputs.user_context,
             )
 
             current_stage = "generate_report"
@@ -301,6 +303,7 @@ def _build_prompt(
     key_sessions: list[dict[str, Any]],
     evidence_sessions: list[dict[str, Any]],
     missing_data: list[str],
+    user_context: str | None,
 ) -> str:
     prompt = _load_prompt(_PROMPT_VERSION)
     notes: dict[str, Any] = {}
@@ -315,8 +318,21 @@ def _build_prompt(
         end_date=end_date.isoformat(),
         training_summary_json=_json(training_summary),
         key_sessions_json=_json(key_sessions),
+        user_context=_format_user_context(user_context),
         notes_json=_json(notes),
     )
+
+
+def _format_user_context(user_context: str | None) -> str:
+    if user_context is None:
+        return "No user context provided."
+
+    context = user_context.strip()
+    return context or "No user context provided."
+
+
+def _has_user_context(user_context: str | None) -> bool:
+    return _format_user_context(user_context) != "No user context provided."
 
 
 def _build_repair_prompt(raw_response: str, error: Exception) -> str:
@@ -460,6 +476,7 @@ def _build_run_payload(
             "start_date": inputs.start_date,
             "end_date": inputs.end_date,
             "athlete_id": inputs.athlete_id,
+            "user_context_included": _has_user_context(inputs.user_context),
             "key_sessions_included": True,
             "tool_budget": tool_registry.max_tool_calls,
         },
