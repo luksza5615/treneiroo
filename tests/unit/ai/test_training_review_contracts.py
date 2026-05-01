@@ -77,4 +77,4 @@ def test_build_fallback_training_review_report_returns_schema_compliant_payload(
     )
     assert report.main_lessons_and_recommendations
     assert report.confidence == 0.0
-    assert "invalid_json_from_model" in report.missing_data
+    assert report.missing_data == []

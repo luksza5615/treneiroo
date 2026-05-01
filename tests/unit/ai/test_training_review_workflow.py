@@ -39,6 +39,16 @@ class _DummyRepository:
         return pd.DataFrame()
 
 
+class _KeySessionsFailingRepository(_DummyRepository):
+    def list_key_sessions(self, start_date, end_date, *, athlete_id=None, n=5):
+        raise RuntimeError("key sessions unavailable")
+
+
+class _ActivityFailingRepository(_DummyRepository):
+    def get_activity_by_id(self, activity_id: int):
+        raise RuntimeError("activity unavailable")
+
+
 class _FakeLLM:
     def __init__(
         self,
@@ -169,17 +179,17 @@ def test_run_training_review_includes_user_context_after_key_session_details() -
     assert "Goal: sub-3 marathon" in prompt
     assert "Capacity: 5 runs per week" in prompt
     assert "Key session details:" in prompt
-    assert "Missing data:" in prompt
+    assert "Missing input:" in prompt
     assert "Optional notes:" not in prompt
     assert prompt.index("Key sessions:") < prompt.index("Key session details:")
     assert prompt.index("Key session details:") < prompt.index("User context:")
-    assert prompt.index("User context:") < prompt.index("Missing data:")
+    assert prompt.index("User context:") < prompt.index("Missing input:")
     assert '"evidence_sessions": []' not in prompt
 
 
-def test_run_training_review_includes_missing_data_in_dedicated_prompt_block() -> None:
-    llm = _FakeLLM(["{invalid json", _valid_report_json()])
-    registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
+def test_run_training_review_includes_tool_fallbacks_in_missing_input_block() -> None:
+    llm = _FakeLLM([_valid_report_json()])
+    registry = ToolRegistry(_KeySessionsFailingRepository(), max_tool_calls=3)
     inputs = TrainingReviewInputs(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 7),
@@ -191,10 +201,11 @@ def test_run_training_review_includes_missing_data_in_dedicated_prompt_block() -
         inputs=inputs,
     )
 
-    prompt = llm.calls[1]["prompt"]
+    prompt = llm.calls[0]["prompt"]
     assert result.parse_ok is True
-    assert "Missing data:" in prompt
-    assert '["evidence_request_invalid_json"]' in prompt
+    assert result.report.missing_data == []
+    assert "Missing input:" in prompt
+    assert '["key_sessions_unavailable"]' in prompt
 
 
 def test_run_training_review_repairs_invalid_json() -> None:
@@ -273,10 +284,12 @@ def test_run_training_review_returns_fallback_when_repair_fails() -> None:
     assert result.report.confidence == 0.0
 
 
-def test_fetch_more_training_details_rejects_fenced_json_response() -> None:
+def test_fetch_more_training_details_does_not_expose_llm_request_errors_as_missing_input() -> (
+    None
+):
     llm = _FakeLLM(['```json\n{"activity_ids":[123]}\n```'])
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
-    missing_data: list[str] = []
+    missing_input: list[str] = []
     usage_tracker = TokenUsageTotals()
 
     evidence = _fetch_more_training_details(
@@ -292,13 +305,40 @@ def test_fetch_more_training_details_rejects_fenced_json_response() -> None:
                 "sport": "running",
             }
         ],
-        missing_data=missing_data,
+        missing_input=missing_input,
         usage_tracker=usage_tracker,
     )
 
     assert evidence == []
-    assert missing_data == ["evidence_request_invalid_json"]
+    assert missing_input == []
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
+
+
+def test_fetch_more_training_details_adds_tool_failures_to_missing_input() -> None:
+    llm = _FakeLLM(['{"activity_ids":[123]}'])
+    registry = ToolRegistry(_ActivityFailingRepository(), max_tool_calls=3)
+    missing_input: list[str] = []
+    usage_tracker = TokenUsageTotals()
+
+    evidence = _fetch_more_training_details(
+        llm_client=llm,
+        tool_registry=registry,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 7),
+        athlete_id=None,
+        key_sessions=[
+            {
+                "activity_id": 123,
+                "activity_date": date(2026, 1, 2),
+                "sport": "running",
+            }
+        ],
+        missing_input=missing_input,
+        usage_tracker=usage_tracker,
+    )
+
+    assert evidence == []
+    assert missing_input == ["key_session_details_unavailable"]
 
 
 def test_run_training_review_persists_failed_executions_when_llm_errors() -> None:

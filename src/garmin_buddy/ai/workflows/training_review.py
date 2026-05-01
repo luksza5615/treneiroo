@@ -52,6 +52,7 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "missing_data": {
+            "description": "Missing information about training",
             "type": "array",
             "items": {"type": "string"},
             "minItems": 0,
@@ -161,7 +162,7 @@ def run_training_review(
         else:
             key_sessions_payload: list[dict[str, Any]] = []
             evidence_sessions: list[dict[str, Any]] = []
-            missing_data: list[str] = []
+            missing_input: list[str] = []
             current_stage = "list_key_sessions"
             key_sessions_result = tool_registry.call_tool(
                 "list_key_sessions",
@@ -175,7 +176,7 @@ def run_training_review(
             if key_sessions_result.ok:
                 key_sessions_payload = key_sessions_result.payload
             else:
-                missing_data.append("key_sessions_unavailable")
+                missing_input.append("key_sessions_unavailable")
 
             current_stage = "fetch_evidence"
             evidence_sessions = _fetch_more_training_details(
@@ -185,7 +186,7 @@ def run_training_review(
                 end_date=inputs.end_date,
                 athlete_id=inputs.athlete_id,
                 key_sessions=key_sessions_payload,
-                missing_data=missing_data,
+                missing_input=missing_input,
                 usage_tracker=token_usage,
             )
 
@@ -196,7 +197,7 @@ def run_training_review(
                 training_summary=summary_result.payload,
                 key_sessions=key_sessions_payload,
                 evidence_sessions=evidence_sessions,
-                missing_data=missing_data,
+                missing_input=missing_input,
                 user_context=inputs.user_context,
             )
 
@@ -302,7 +303,7 @@ def _build_prompt(
     training_summary: dict[str, Any],
     key_sessions: list[dict[str, Any]],
     evidence_sessions: list[dict[str, Any]],
-    missing_data: list[str],
+    missing_input: list[str],
     user_context: str | None,
 ) -> str:
     prompt = _load_prompt(_PROMPT_VERSION)
@@ -315,7 +316,7 @@ def _build_prompt(
         key_sessions_json=_json(key_sessions),
         key_session_details_json=_json(evidence_sessions),
         user_context=_format_user_context(user_context),
-        missing_data_json=_json(missing_data),
+        missing_input_json=_json(missing_input),
     )
 
 
@@ -350,7 +351,7 @@ def _fetch_more_training_details(
     end_date: date,
     athlete_id: int | None,
     key_sessions: list[dict[str, Any]],
-    missing_data: list[str],
+    missing_input: list[str],
     usage_tracker: TokenUsageTotals,
 ) -> list[dict[str, Any]]:
     if not key_sessions:
@@ -374,12 +375,10 @@ def _fetch_more_training_details(
     try:
         payload = json.loads(response)
     except json.JSONDecodeError:
-        missing_data.append("evidence_request_invalid_json")
         return []
 
     activity_ids = payload.get("activity_ids")
     if not isinstance(activity_ids, list):
-        missing_data.append("evidence_request_invalid_schema")
         return []
 
     requested_ids = _sanitize_activity_ids(activity_ids)
@@ -394,7 +393,7 @@ def _fetch_more_training_details(
         if result.ok:
             evidence_sessions.extend(result.payload)
         else:
-            missing_data.append("evidence_fetch_failed")
+            missing_input.append("key_session_details_unavailable")
 
     return evidence_sessions
 

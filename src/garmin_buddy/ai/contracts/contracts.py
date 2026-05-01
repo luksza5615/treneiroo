@@ -83,9 +83,9 @@ def build_fallback_training_review_report(
     *,
     error_reason: str | None = None,
 ) -> TrainingReviewReport:
-    missing_data = []
-    if error_reason:
-        missing_data.append(error_reason)
+    # Keep fallback reports from showing technical failures as athlete-facing
+    # missing data.
+    _ = error_reason
 
     return TrainingReviewReport(
         summary=(
@@ -99,7 +99,7 @@ def build_fallback_training_review_report(
         ],
         evidence=[],
         confidence=0.0,
-        missing_data=missing_data,
+        missing_data=[],
     )
 
 
