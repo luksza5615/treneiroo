@@ -89,7 +89,7 @@ def _valid_report_json() -> str:
         '"summary":"Solid week.",'
         '"positives":["Consistent volume."],'
         '"mistakes":["Fatigue risk."],'
-        '"main_lessons_and_recommendations":["Rest day.","Easy run."],'
+        '"recommendations":["Rest day.","Easy run."],'
         '"evidence":["2026-01-02 activity:123 Long run"],'
         '"confidence":0.6,'
         '"missing_data":[]'

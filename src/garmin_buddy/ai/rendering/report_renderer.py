@@ -18,8 +18,8 @@ def render_report_md(
     sections.append(_render_list_section("Mistakes", report.mistakes))
     sections.append(
         _render_list_section(
-            "Main lessons and recommendations",
-            report.main_lessons_and_recommendations,
+            "Recommendations",
+            report.recommendations,
         )
     )
     sections.append(_render_list_section("Evidence", report.evidence))
@@ -34,8 +34,7 @@ def _render_headline(start_date: date | None, end_date: date | None) -> str:
         return "Training review"
 
     return (
-        "Training review between "
-        f"{start_date.isoformat()} and {end_date.isoformat()}"
+        f"Training review between {start_date.isoformat()} and {end_date.isoformat()}"
     )
 
 

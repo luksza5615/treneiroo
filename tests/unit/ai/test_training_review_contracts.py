@@ -14,7 +14,7 @@ def _valid_payload() -> dict[str, object]:
         "summary": "Solid week with one high-load risk to monitor.",
         "positives": ["Consistent volume across five sessions."],
         "mistakes": ["Back-to-back hard days increased fatigue risk."],
-        "main_lessons_and_recommendations": [
+        "recommendations": [
             "Keep one full rest day after the hardest run.",
             "Cap intensity to one quality workout.",
         ],
@@ -75,6 +75,6 @@ def test_build_fallback_training_review_report_returns_schema_compliant_payload(
     assert report.summary == (
         "Training review unavailable for 2026-01-01 to 2026-01-07."
     )
-    assert report.main_lessons_and_recommendations
+    assert report.recommendations
     assert report.confidence == 0.0
     assert report.missing_data == []

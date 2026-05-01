@@ -8,7 +8,7 @@ _REQUIRED_FIELDS = {
     "summary",
     "positives",
     "mistakes",
-    "main_lessons_and_recommendations",
+    "recommendations",
     "evidence",
     "confidence",
     "missing_data",
@@ -20,7 +20,7 @@ class TrainingReviewReport:
     summary: str
     positives: list[str]
     mistakes: list[str]
-    main_lessons_and_recommendations: list[str]
+    recommendations: list[str]
     evidence: list[str]
     confidence: float
     missing_data: list[str]
@@ -30,7 +30,7 @@ class TrainingReviewReport:
             "summary": self.summary,
             "positives": self.positives,
             "mistakes": self.mistakes,
-            "main_lessons_and_recommendations": self.main_lessons_and_recommendations,
+            "recommendations": self.recommendations,
             "evidence": self.evidence,
             "confidence": self.confidence,
             "missing_data": self.missing_data,
@@ -44,8 +44,8 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
     positives = _validate_string_list("positives", payload["positives"], 0, 8)
     mistakes = _validate_string_list("mistakes", payload["mistakes"], 0, 12)
     lessons = _validate_string_list(
-        "main_lessons_and_recommendations",
-        payload["main_lessons_and_recommendations"],
+        "recommendations",
+        payload["recommendations"],
         1,
         12,
     )
@@ -59,7 +59,7 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
         summary=summary,
         positives=positives,
         mistakes=mistakes,
-        main_lessons_and_recommendations=lessons,
+        recommendations=lessons,
         evidence=evidence,
         confidence=confidence,
         missing_data=missing_data,
@@ -94,7 +94,7 @@ def build_fallback_training_review_report(
         ),
         positives=[],
         mistakes=[],
-        main_lessons_and_recommendations=[
+        recommendations=[
             "Regenerate the review after the missing data or model output is available."
         ],
         evidence=[],

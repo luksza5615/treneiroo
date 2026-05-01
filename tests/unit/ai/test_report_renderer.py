@@ -9,7 +9,7 @@ def test_render_report_md_contains_sections() -> None:
         summary="Strong week",
         positives=["Consistent training."],
         mistakes=["Fatigue risk."],
-        main_lessons_and_recommendations=["Rest day.", "Easy run."],
+        recommendations=["Rest day.", "Easy run."],
         evidence=["2026-01-02 activity:123 Long run"],
         confidence=0.7,
         missing_data=["hrv_not_available"],
@@ -25,7 +25,7 @@ def test_render_report_md_contains_sections() -> None:
     assert "## Summary" in rendered
     assert "## Positives" in rendered
     assert "## Mistakes" in rendered
-    assert "## Main lessons and recommendations" in rendered
+    assert "## Recommendations" in rendered
     assert "## Evidence" in rendered
     assert "**Confidence:** 0.70" in rendered
     assert "## Missing data" in rendered

@@ -163,7 +163,7 @@ def _read_garmin_mfa_code() -> str:
 
 # ----------APP---------
 def main():
-    st.set_page_config(page_title="Garmin Buddy", layout="wide")
+    st.set_page_config(page_title="Treneiro", layout="wide")
 
     try:
         services = init_services()
