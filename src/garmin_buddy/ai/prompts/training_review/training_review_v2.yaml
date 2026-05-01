@@ -30,8 +30,11 @@ user_template: |
   Key sessions:
   {key_sessions_json}
 
+  Key session details:
+  {key_session_details_json}
+
   User context:
   {user_context}
 
-  Optional notes:
-  {notes_json}
+  Missing data:
+  {missing_data_json}

@@ -148,7 +148,7 @@ def test_run_training_review_uses_fixed_budget_without_budget_missing_data() -> 
     assert "evidence_tool_budget_exhausted" not in llm.calls[0]["prompt"]
 
 
-def test_run_training_review_includes_user_context_outside_optional_notes() -> None:
+def test_run_training_review_includes_user_context_after_key_session_details() -> None:
     llm = _FakeLLM([_valid_report_json()])
     registry = ToolRegistry(_DummyRepository(), max_tool_calls=2)
     inputs = TrainingReviewInputs(
@@ -168,9 +168,33 @@ def test_run_training_review_includes_user_context_outside_optional_notes() -> N
     assert "User context:" in prompt
     assert "Goal: sub-3 marathon" in prompt
     assert "Capacity: 5 runs per week" in prompt
-    assert "Optional notes:" in prompt
-    assert prompt.index("User context:") < prompt.index("Optional notes:")
+    assert "Key session details:" in prompt
+    assert "Missing data:" in prompt
+    assert "Optional notes:" not in prompt
+    assert prompt.index("Key sessions:") < prompt.index("Key session details:")
+    assert prompt.index("Key session details:") < prompt.index("User context:")
+    assert prompt.index("User context:") < prompt.index("Missing data:")
     assert '"evidence_sessions": []' not in prompt
+
+
+def test_run_training_review_includes_missing_data_in_dedicated_prompt_block() -> None:
+    llm = _FakeLLM(["{invalid json", _valid_report_json()])
+    registry = ToolRegistry(_DummyRepository(), max_tool_calls=3)
+    inputs = TrainingReviewInputs(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 7),
+    )
+
+    result = run_training_review(
+        llm_client=llm,
+        tool_registry=registry,
+        inputs=inputs,
+    )
+
+    prompt = llm.calls[1]["prompt"]
+    assert result.parse_ok is True
+    assert "Missing data:" in prompt
+    assert '["evidence_request_invalid_json"]' in prompt
 
 
 def test_run_training_review_repairs_invalid_json() -> None:

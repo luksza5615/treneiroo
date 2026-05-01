@@ -306,11 +306,6 @@ def _build_prompt(
     user_context: str | None,
 ) -> str:
     prompt = _load_prompt(_PROMPT_VERSION)
-    notes: dict[str, Any] = {}
-    if evidence_sessions:
-        notes["evidence_sessions"] = evidence_sessions
-    if missing_data:
-        notes["missing_data"] = missing_data
 
     return prompt["user_template"].format(
         athlete_id=athlete_id,
@@ -318,8 +313,9 @@ def _build_prompt(
         end_date=end_date.isoformat(),
         training_summary_json=_json(training_summary),
         key_sessions_json=_json(key_sessions),
+        key_session_details_json=_json(evidence_sessions),
         user_context=_format_user_context(user_context),
-        notes_json=_json(notes),
+        missing_data_json=_json(missing_data),
     )
 
 
