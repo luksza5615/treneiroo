@@ -124,6 +124,16 @@ def test_run_training_review_happy_path() -> None:
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
     assert llm.calls[1]["system_instruction"] is not None
     assert "summary" in llm.calls[1]["response_json_schema"]["required"]
+    missing_data_schema = llm.calls[1]["response_json_schema"]["properties"][
+        "missing_data"
+    ]
+    assert "maxItems" not in missing_data_schema
+    assert missing_data_schema["items"]["required"] == ["information", "impact"]
+    assert missing_data_schema["items"]["properties"]["impact"]["enum"] == [
+        "low",
+        "medium",
+        "high",
+    ]
     assert "Produce only one JSON object." in llm.calls[1]["system_instruction"]
     assert "Produce the most insightful training review" in llm.calls[1]["prompt"]
     assert "Training summary:" in llm.calls[1]["prompt"]

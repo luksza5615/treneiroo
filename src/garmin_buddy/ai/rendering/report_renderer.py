@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from garmin_buddy.ai.contracts.contracts import TrainingReviewReport
+from garmin_buddy.ai.contracts.contracts import MissingDataItem, TrainingReviewReport
 
 
 def render_report_md(
@@ -23,7 +23,7 @@ def render_report_md(
         )
     )
     sections.append(f"**Confidence:** {report.confidence:.2f}")
-    sections.append(_render_list_section("Missing data", report.missing_data))
+    sections.append(_render_missing_data_section(report.missing_data))
 
     return "\n\n".join(sections)
 
@@ -43,3 +43,13 @@ def _render_list_section(title: str, items: list[str]) -> str:
 
     bullets = "\n".join(f"- {item}" for item in items)
     return f"## {title}\n{bullets}"
+
+
+def _render_missing_data_section(items: list[MissingDataItem]) -> str:
+    if not items:
+        return "## Missing data\n- None"
+
+    bullets = "\n".join(
+        f"- {item.information}. IMPACT: {item.impact}" for item in items
+    )
+    return f"## Missing data\n{bullets}"

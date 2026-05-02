@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Mapping
+from typing import Any
 
 _REQUIRED_FIELDS = {
     "summary",
@@ -12,6 +13,20 @@ _REQUIRED_FIELDS = {
     "confidence",
     "missing_data",
 }
+_MISSING_DATA_FIELDS = {"information", "impact"}
+_MISSING_DATA_IMPACTS = {"low", "medium", "high"}
+
+
+@dataclass(frozen=True)
+class MissingDataItem:
+    information: str
+    impact: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "information": self.information,
+            "impact": self.impact,
+        }
 
 
 @dataclass(frozen=True)
@@ -21,7 +36,7 @@ class TrainingReviewReport:
     mistakes: list[str]
     recommendations: list[str]
     confidence: float
-    missing_data: list[str]
+    missing_data: list[MissingDataItem]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -30,7 +45,7 @@ class TrainingReviewReport:
             "mistakes": self.mistakes,
             "recommendations": self.recommendations,
             "confidence": self.confidence,
-            "missing_data": self.missing_data,
+            "missing_data": [item.to_dict() for item in self.missing_data],
         }
 
 
@@ -47,9 +62,7 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
         12,
     )
     confidence = _validate_confidence(payload["confidence"])
-    missing_data = _validate_string_list(
-        "missing_data", payload["missing_data"], 0, 100
-    )
+    missing_data = _validate_missing_data(payload["missing_data"], 0, 100)
 
     return TrainingReviewReport(
         summary=summary,
@@ -140,6 +153,62 @@ def _validate_string_list(
         cleaned_items.append(item.strip())
 
     return cleaned_items
+
+
+def _validate_missing_data(
+    value: Any,
+    min_length: int,
+    max_length: int,
+) -> list[MissingDataItem]:
+    if not isinstance(value, list):
+        raise ValueError("missing_data must be a list of objects")
+
+    item_count = len(value)
+    if item_count < min_length or item_count > max_length:
+        raise ValueError(
+            f"missing_data must contain between {min_length} and {max_length} items"
+        )
+
+    cleaned_items: list[MissingDataItem] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError(
+                "missing_data entries must be objects with information and impact"
+            )
+
+        item_fields = set(item.keys())
+        missing_fields = sorted(_MISSING_DATA_FIELDS - item_fields)
+        unexpected_fields = sorted(item_fields - _MISSING_DATA_FIELDS)
+        if missing_fields:
+            raise ValueError(
+                "missing_data entries are missing fields: "
+                f"{', '.join(missing_fields)}"
+            )
+        if unexpected_fields:
+            raise ValueError(
+                "missing_data entries contain unexpected fields: "
+                f"{', '.join(unexpected_fields)}"
+            )
+
+        information = _validate_non_empty_string(
+            "missing_data information", item["information"]
+        )
+        impact = _validate_missing_data_impact(item["impact"])
+        cleaned_items.append(MissingDataItem(information=information, impact=impact))
+
+    return cleaned_items
+
+
+def _validate_missing_data_impact(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("missing_data impact must be a string")
+
+    impact = value.strip()
+    if impact not in _MISSING_DATA_IMPACTS:
+        allowed = ", ".join(sorted(_MISSING_DATA_IMPACTS))
+        raise ValueError(f"missing_data impact must be one of: {allowed}")
+
+    return impact
 
 
 def _validate_confidence(value: Any) -> float:

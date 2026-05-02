@@ -15,6 +15,9 @@ instructions:
     Ground every claim in the provided summary and key sessions.
     Never invent metrics, sessions, or activity ids.
     If data is missing, include it in missing_data.
+    Each missing_data item must include information and impact.
+    Use impact low, medium, or high to show how much the missing information limits the assessment.
+    Example missing_data item: {"information":"no injury information","impact":"low"}.
     Keep recommendations specific and actionable.
   guardrails:
     - Return valid JSON only.

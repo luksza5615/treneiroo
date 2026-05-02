@@ -1,6 +1,6 @@
 from datetime import date
 
-from garmin_buddy.ai.contracts.contracts import TrainingReviewReport
+from garmin_buddy.ai.contracts.contracts import MissingDataItem, TrainingReviewReport
 from garmin_buddy.ai.rendering.report_renderer import render_report_md
 
 
@@ -11,7 +11,9 @@ def test_render_report_md_contains_sections() -> None:
         mistakes=["Fatigue risk."],
         recommendations=["Rest day.", "Easy run."],
         confidence=0.7,
-        missing_data=["hrv_not_available"],
+        missing_data=[
+            MissingDataItem(information="hrv_not_available", impact="medium"),
+        ],
     )
 
     rendered = render_report_md(
@@ -27,3 +29,4 @@ def test_render_report_md_contains_sections() -> None:
     assert "## Recommendations" in rendered
     assert "**Confidence:** 0.70" in rendered
     assert "## Missing data" in rendered
+    assert "- hrv_not_available (medium)" in rendered

@@ -29,28 +29,31 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         "positives": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 0,
-            "maxItems": 8,
         },
         "mistakes": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 0,
-            "maxItems": 12,
         },
         "recommendations": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 1,
-            "maxItems": 12,
         },
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "confidence": {"type": "number"},
         "missing_data": {
-            "description": "Missing information about training",
             "type": "array",
-            "items": {"type": "string"},
-            "minItems": 0,
-            "maxItems": 100,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "information": {"type": "string"},
+                    "impact": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": ["information", "impact"],
+                "additionalProperties": False,
+                "propertyOrdering": ["information", "impact"],
+            },
         },
     },
     "required": [
@@ -330,6 +333,8 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
         "Return only valid JSON with these exact required keys: "
         "summary, positives, mistakes, "
         "recommendations, confidence, missing_data.\n"
+        "missing_data must be a list of objects with information and impact, "
+        "where impact is one of low, medium, high.\n"
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"
     )

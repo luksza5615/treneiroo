@@ -11,8 +11,6 @@ instructions:
     Produce only one JSON object.
     Use exactly the schema keys and no extras.
     Do not include markdown, code fences, prose, or extra keys.
-    If athlete-facing data is missing, include it in missing_data.
-    Do not copy tool fallback messages from missing_input into missing_data.
 user_template: |
   Produce the most insightful training review for the period {start_date} and {end_date}
   so the athlete can extract hard lessons and make better decisions.

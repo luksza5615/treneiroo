@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from garmin_buddy.ai.contracts.contracts import (
+    MissingDataItem,
     build_fallback_training_review_report,
     parse_training_review_report,
     validate_training_review_report,
@@ -19,7 +20,9 @@ def _valid_payload() -> dict[str, object]:
             "Cap intensity to one quality workout.",
         ],
         "confidence": 0.74,
-        "missing_data": ["hrv_not_available"],
+        "missing_data": [
+            {"information": "hrv_not_available", "impact": "medium"},
+        ],
     }
 
 
@@ -28,6 +31,27 @@ def test_parse_training_review_report_accepts_valid_payload() -> None:
 
     assert report.summary.startswith("Solid week")
     assert report.confidence == pytest.approx(0.74)
+    assert report.missing_data == [
+        MissingDataItem(information="hrv_not_available", impact="medium"),
+    ]
+
+
+def test_parse_training_review_report_rejects_legacy_missing_data_strings() -> None:
+    payload = _valid_payload()
+    payload["missing_data"] = ["hrv_not_available"]
+
+    with pytest.raises(ValueError, match="missing_data entries must be objects"):
+        parse_training_review_report(payload)
+
+
+def test_parse_training_review_report_rejects_unknown_missing_data_impact() -> None:
+    payload = _valid_payload()
+    payload["missing_data"] = [
+        {"information": "hrv_not_available", "impact": "minor"},
+    ]
+
+    with pytest.raises(ValueError, match="missing_data impact"):
+        parse_training_review_report(payload)
 
 
 def test_parse_training_review_report_rejects_legacy_evidence_field() -> None:
