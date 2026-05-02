@@ -12,7 +12,7 @@ from garmin_buddy.ai.contracts.preparation_contracts import (
     RunnerProfileArtifact,
     StrengthPlanArtifact,
 )
-from garmin_buddy.ai.rendering.preparation_renderer import render_preparation_md
+from garmin_buddy.ui.rendering.preparation_renderer import render_preparation_md
 
 
 def test_render_preparation_md_includes_strategy_and_phase_sections() -> None:

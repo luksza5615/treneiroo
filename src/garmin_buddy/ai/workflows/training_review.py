@@ -329,7 +329,7 @@ def _has_user_context(user_context: str | None) -> bool:
 
 def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     return (
-        "Fix the following JSON to match the TrainingReviewReport schema.\n"
+        "Fix the following JSON to match the provided schema.\n"
         "Return only valid JSON with these exact required keys: "
         "summary, positives, mistakes, "
         "recommendations, confidence, missing_data.\n"

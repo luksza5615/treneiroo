@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import streamlit as st
+
 from garmin_buddy.ai.contracts.preparation_contracts import PreparationResult
+
+
+def render_preparation(result: PreparationResult) -> None:
+    st.markdown(render_preparation_md(result))
 
 
 def render_preparation_md(result: PreparationResult) -> str:

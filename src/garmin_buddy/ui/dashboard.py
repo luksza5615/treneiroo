@@ -13,8 +13,6 @@ from garmin_buddy.ai.logging.execution_store import ExecutionStore
 from garmin_buddy.ai.logging.preparation_execution_store import (
     PreparationExecutionStore,
 )
-from garmin_buddy.ai.rendering.preparation_renderer import render_preparation_md
-from garmin_buddy.ai.rendering.report_renderer import render_report_md
 from garmin_buddy.ai.tools.training_plan_preparation_tools import (
     PreparationToolRegistry,
 )
@@ -58,6 +56,8 @@ from garmin_buddy.settings.config import Config, ConfigError
 from garmin_buddy.settings.logging_config import setup_logging
 from garmin_buddy.ui.charts import weekly_trend_chart
 from garmin_buddy.ui.label_mapping import SPORT_LABELS, SUBSPORT_LABELS
+from garmin_buddy.ui.rendering.preparation_renderer import render_preparation
+from garmin_buddy.ui.rendering.report_renderer import render_report
 
 
 @dataclass(frozen=True)
@@ -382,12 +382,10 @@ def main():
                 except Exception as exc:
                     st.error(str(exc))
                 else:
-                    st.markdown(
-                        render_report_md(
-                            result.report,
-                            start_date=start,
-                            end_date=end,
-                        )
+                    render_report(
+                        result.report,
+                        start_date=start,
+                        end_date=end,
                     )
 
     with tabs[3]:
@@ -459,7 +457,7 @@ def main():
                     st.session_state["preparation_strategy_id"] = (
                         result.strategy.strategy_id
                     )
-                    st.markdown(render_preparation_md(result))
+                    render_preparation(result)
 
             strategy_id = st.session_state.get("preparation_strategy_id")
             if strategy_id:
@@ -504,4 +502,4 @@ def main():
                             st.error(
                                 "Strategy became stale because upstream inputs changed. Regenerate the strategy first."
                             )
-                        st.markdown(render_preparation_md(result))
+                        render_preparation(result)
