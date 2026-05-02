@@ -71,7 +71,7 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         "missing_data",
     ],
 }
-_EVIDENCE_REQUEST_RESPONSE_SCHEMA: dict[str, Any] = {
+_KEY_SESSION_DETAILS_REQUEST_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "activity_ids": {
@@ -153,7 +153,7 @@ def run_training_review(
             )
         else:
             key_sessions_payload: list[dict[str, Any]] = []
-            evidence_sessions: list[dict[str, Any]] = []
+            key_session_details: list[dict[str, Any]] = []
             missing_input: list[str] = []
             current_stage = "list_key_sessions"
             key_sessions_result = tool_registry.call_tool(
@@ -170,8 +170,8 @@ def run_training_review(
             else:
                 missing_input.append("key_sessions_unavailable")
 
-            current_stage = "fetch_evidence"
-            evidence_sessions = _fetch_more_training_details(
+            current_stage = "fetch_key_session_details"
+            key_session_details = _fetch_key_session_details(
                 llm_client=llm_client,
                 tool_registry=tool_registry,
                 start_date=inputs.start_date,
@@ -188,7 +188,7 @@ def run_training_review(
                 athlete_id=inputs.athlete_id,
                 training_summary=summary_result.payload,
                 key_sessions=key_sessions_payload,
-                evidence_sessions=evidence_sessions,
+                key_session_details=key_session_details,
                 missing_input=missing_input,
                 user_context=inputs.user_context,
             )
@@ -294,7 +294,7 @@ def _build_prompt(
     athlete_id: int | None,
     training_summary: dict[str, Any],
     key_sessions: list[dict[str, Any]],
-    evidence_sessions: list[dict[str, Any]],
+    key_session_details: list[dict[str, Any]],
     missing_input: list[str],
     user_context: str | None,
 ) -> str:
@@ -306,7 +306,7 @@ def _build_prompt(
         end_date=end_date.isoformat(),
         training_summary_json=_json(training_summary),
         key_sessions_json=_json(key_sessions),
-        key_session_details_json=_json(evidence_sessions),
+        key_session_details_json=_json(key_session_details),
         user_context=_format_user_context(user_context),
         missing_input_json=_json(missing_input),
     )
@@ -335,7 +335,7 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
     )
 
 
-def _fetch_more_training_details(
+def _fetch_key_session_details(
     *,
     llm_client: LLMClient,
     tool_registry: ToolRegistry,
@@ -352,7 +352,7 @@ def _fetch_more_training_details(
     if tool_registry.remaining_budget() <= 0:
         return []
 
-    request_prompt = _build_evidence_request_prompt(
+    request_prompt = _build_key_session_details_request_prompt(
         start_date=start_date,
         end_date=end_date,
         athlete_id=athlete_id,
@@ -360,7 +360,7 @@ def _fetch_more_training_details(
     )
     response = llm_client.generate(
         request_prompt,
-        response_json_schema=_EVIDENCE_REQUEST_RESPONSE_SCHEMA,
+        response_json_schema=_KEY_SESSION_DETAILS_REQUEST_RESPONSE_SCHEMA,
         usage_tracker=usage_tracker,
     )
 
@@ -379,18 +379,18 @@ def _fetch_more_training_details(
 
     max_fetches = min(2, tool_registry.remaining_budget())
     selected_ids = requested_ids[:max_fetches]
-    evidence_sessions: list[dict[str, Any]] = []
+    key_session_details: list[dict[str, Any]] = []
     for activity_id in selected_ids:
         result = tool_registry.call_tool("get_activity", {"activity_id": activity_id})
         if result.ok:
-            evidence_sessions.extend(result.payload)
+            key_session_details.extend(result.payload)
         else:
             missing_input.append("key_session_details_unavailable")
 
-    return evidence_sessions
+    return key_session_details
 
 
-def _build_evidence_request_prompt(
+def _build_key_session_details_request_prompt(
     *,
     start_date: date,
     end_date: date,
@@ -399,7 +399,7 @@ def _build_evidence_request_prompt(
 ) -> str:
     return (
         "Return a JSON object with an activity_ids list (max 2 integers) that need "
-        "extra evidence. Use only activity_ids from key_sessions.\n"
+        "extra key-session details. Use only activity_ids from key_sessions.\n"
         f"athlete_id: {athlete_id}\n"
         f"start_date: {start_date.isoformat()}\n"
         f"end_date: {end_date.isoformat()}\n"

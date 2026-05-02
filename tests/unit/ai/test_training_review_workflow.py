@@ -15,7 +15,7 @@ from garmin_buddy.ai.logging.execution_store import ExecutionStore
 from garmin_buddy.ai.tools.training_review_tools import ToolRegistry
 from garmin_buddy.ai.workflows.training_review import (
     TrainingReviewInputs,
-    _fetch_more_training_details,
+    _fetch_key_session_details,
     run_training_review,
 )
 
@@ -127,7 +127,7 @@ def test_run_training_review_happy_path() -> None:
     assert "Produce only one JSON object." in llm.calls[1]["system_instruction"]
     assert "Produce the most insightful training review" in llm.calls[1]["prompt"]
     assert "Training summary:" in llm.calls[1]["prompt"]
-    assert '"evidence_sessions": []' not in llm.calls[1]["prompt"]
+    assert '"key_session_details": []' not in llm.calls[1]["prompt"]
     saved_line = json.loads(
         (temp_dir / "training_review_executions.jsonl")
         .read_text(encoding="utf-8")
@@ -154,7 +154,7 @@ def test_run_training_review_uses_fixed_budget_without_budget_missing_data() -> 
     assert result.parse_ok is True
     assert len(llm.calls) == 1
     assert "Key sessions:" in llm.calls[0]["prompt"]
-    assert "evidence_tool_budget_exhausted" not in llm.calls[0]["prompt"]
+    assert "key_session_details_tool_budget_exhausted" not in llm.calls[0]["prompt"]
 
 
 def test_run_training_review_includes_user_context_after_key_session_details() -> None:
@@ -183,7 +183,7 @@ def test_run_training_review_includes_user_context_after_key_session_details() -
     assert prompt.index("Key sessions:") < prompt.index("Key session details:")
     assert prompt.index("Key session details:") < prompt.index("User context:")
     assert prompt.index("User context:") < prompt.index("Missing input:")
-    assert '"evidence_sessions": []' not in prompt
+    assert '"key_session_details": []' not in prompt
 
 
 def test_run_training_review_includes_tool_fallbacks_in_missing_input_block() -> None:
@@ -283,7 +283,7 @@ def test_run_training_review_returns_fallback_when_repair_fails() -> None:
     assert result.report.confidence == 0.0
 
 
-def test_fetch_more_training_details_does_not_expose_llm_request_errors_as_missing_input() -> (
+def test_fetch_key_session_details_does_not_expose_llm_request_errors_as_missing_input() -> (
     None
 ):
     llm = _FakeLLM(['```json\n{"activity_ids":[123]}\n```'])
@@ -291,7 +291,7 @@ def test_fetch_more_training_details_does_not_expose_llm_request_errors_as_missi
     missing_input: list[str] = []
     usage_tracker = TokenUsageTotals()
 
-    evidence = _fetch_more_training_details(
+    key_session_details = _fetch_key_session_details(
         llm_client=llm,
         tool_registry=registry,
         start_date=date(2026, 1, 1),
@@ -308,18 +308,18 @@ def test_fetch_more_training_details_does_not_expose_llm_request_errors_as_missi
         usage_tracker=usage_tracker,
     )
 
-    assert evidence == []
+    assert key_session_details == []
     assert missing_input == []
     assert llm.calls[0]["response_json_schema"]["required"] == ["activity_ids"]
 
 
-def test_fetch_more_training_details_adds_tool_failures_to_missing_input() -> None:
+def test_fetch_key_session_details_adds_tool_failures_to_missing_input() -> None:
     llm = _FakeLLM(['{"activity_ids":[123]}'])
     registry = ToolRegistry(_ActivityFailingRepository(), max_tool_calls=3)
     missing_input: list[str] = []
     usage_tracker = TokenUsageTotals()
 
-    evidence = _fetch_more_training_details(
+    key_session_details = _fetch_key_session_details(
         llm_client=llm,
         tool_registry=registry,
         start_date=date(2026, 1, 1),
@@ -336,7 +336,7 @@ def test_fetch_more_training_details_adds_tool_failures_to_missing_input() -> No
         usage_tracker=usage_tracker,
     )
 
-    assert evidence == []
+    assert key_session_details == []
     assert missing_input == ["key_session_details_unavailable"]
 
 
