@@ -22,7 +22,6 @@ def render_report_md(
             report.recommendations,
         )
     )
-    sections.append(_render_list_section("Evidence", report.evidence))
     sections.append(f"**Confidence:** {report.confidence:.2f}")
     sections.append(_render_list_section("Missing data", report.missing_data))
 

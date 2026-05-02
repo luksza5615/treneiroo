@@ -10,7 +10,6 @@ def test_evaluate_cases_counts_pass_rates() -> None:
             "positives": ["Consistent volume."],
             "mistakes": ["Fatigue risk."],
             "recommendations": ["Rest day.", "Easy run."],
-            "evidence": ["2026-01-02 activity:123 Long run"],
             "confidence": 0.6,
             "missing_data": [],
         }

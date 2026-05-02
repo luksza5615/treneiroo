@@ -9,7 +9,6 @@ _REQUIRED_FIELDS = {
     "positives",
     "mistakes",
     "recommendations",
-    "evidence",
     "confidence",
     "missing_data",
 }
@@ -21,7 +20,6 @@ class TrainingReviewReport:
     positives: list[str]
     mistakes: list[str]
     recommendations: list[str]
-    evidence: list[str]
     confidence: float
     missing_data: list[str]
 
@@ -31,7 +29,6 @@ class TrainingReviewReport:
             "positives": self.positives,
             "mistakes": self.mistakes,
             "recommendations": self.recommendations,
-            "evidence": self.evidence,
             "confidence": self.confidence,
             "missing_data": self.missing_data,
         }
@@ -49,7 +46,6 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
         1,
         12,
     )
-    evidence = _validate_evidence(payload["evidence"])
     confidence = _validate_confidence(payload["confidence"])
     missing_data = _validate_string_list(
         "missing_data", payload["missing_data"], 0, 100
@@ -60,7 +56,6 @@ def parse_training_review_report(payload: Mapping[str, Any]) -> TrainingReviewRe
         positives=positives,
         mistakes=mistakes,
         recommendations=lessons,
-        evidence=evidence,
         confidence=confidence,
         missing_data=missing_data,
     )
@@ -97,7 +92,6 @@ def build_fallback_training_review_report(
         recommendations=[
             "Regenerate the review after the missing data or model output is available."
         ],
-        evidence=[],
         confidence=0.0,
         missing_data=[],
     )
@@ -146,10 +140,6 @@ def _validate_string_list(
         cleaned_items.append(item.strip())
 
     return cleaned_items
-
-
-def _validate_evidence(value: Any) -> list[str]:
-    return _validate_string_list("evidence", value, 0, 10)
 
 
 def _validate_confidence(value: Any) -> float:

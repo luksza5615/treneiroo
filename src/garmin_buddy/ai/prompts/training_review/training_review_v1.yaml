@@ -20,7 +20,6 @@ instructions:
     - Return valid JSON only.
     - Use exactly the schema keys and no extras.
     - confidence must be a number in [0, 1].
-    - Evidence must reference concrete date and activity id when available.
     - Do not provide medical diagnosis or treatment advice.
 user_template: |
   Generate a training review for the period:

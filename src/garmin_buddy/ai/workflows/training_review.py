@@ -44,12 +44,6 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
             "minItems": 1,
             "maxItems": 12,
         },
-        "evidence": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 0,
-            "maxItems": 10,
-        },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "missing_data": {
             "description": "Missing information about training",
@@ -64,7 +58,6 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         "positives",
         "mistakes",
         "recommendations",
-        "evidence",
         "confidence",
         "missing_data",
     ],
@@ -74,7 +67,6 @@ _TRAINING_REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
         "positives",
         "mistakes",
         "recommendations",
-        "evidence",
         "confidence",
         "missing_data",
     ],
@@ -337,7 +329,7 @@ def _build_repair_prompt(raw_response: str, error: Exception) -> str:
         "Fix the following JSON to match the TrainingReviewReport schema.\n"
         "Return only valid JSON with these exact required keys: "
         "summary, positives, mistakes, "
-        "recommendations, evidence, confidence, missing_data.\n"
+        "recommendations, confidence, missing_data.\n"
         f"Error: {error}\n"
         f"Invalid JSON:\n{raw_response}"
     )

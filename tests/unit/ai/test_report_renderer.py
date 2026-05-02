@@ -10,7 +10,6 @@ def test_render_report_md_contains_sections() -> None:
         positives=["Consistent training."],
         mistakes=["Fatigue risk."],
         recommendations=["Rest day.", "Easy run."],
-        evidence=["2026-01-02 activity:123 Long run"],
         confidence=0.7,
         missing_data=["hrv_not_available"],
     )
@@ -26,6 +25,5 @@ def test_render_report_md_contains_sections() -> None:
     assert "## Positives" in rendered
     assert "## Mistakes" in rendered
     assert "## Recommendations" in rendered
-    assert "## Evidence" in rendered
     assert "**Confidence:** 0.70" in rendered
     assert "## Missing data" in rendered

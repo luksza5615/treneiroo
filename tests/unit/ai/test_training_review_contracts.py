@@ -18,7 +18,6 @@ def _valid_payload() -> dict[str, object]:
             "Keep one full rest day after the hardest run.",
             "Cap intensity to one quality workout.",
         ],
-        "evidence": ["2026-01-31 activity:123456 Long run 18.2 km"],
         "confidence": 0.74,
         "missing_data": ["hrv_not_available"],
     }
@@ -29,19 +28,14 @@ def test_parse_training_review_report_accepts_valid_payload() -> None:
 
     assert report.summary.startswith("Solid week")
     assert report.confidence == pytest.approx(0.74)
-    assert report.evidence[0].startswith("2026-01-31 activity:123456")
 
 
-def test_parse_training_review_report_accepts_grounded_freeform_evidence() -> None:
+def test_parse_training_review_report_rejects_legacy_evidence_field() -> None:
     payload = _valid_payload()
-    payload["evidence"] = [
-        "Key session: 2026-04-12 ATE 5.0, ANE 1.0, Avg HR 172",
-        "Training summary: 234.3 km and 5231m ascent",
-    ]
+    payload["evidence"] = ["2026-01-31 activity:123456 Long run 18.2 km"]
 
-    report = parse_training_review_report(payload)
-
-    assert report.evidence == payload["evidence"]
+    with pytest.raises(ValueError, match="Unexpected report fields"):
+        parse_training_review_report(payload)
 
 
 def test_parse_training_review_report_rejects_extra_fields() -> None:
